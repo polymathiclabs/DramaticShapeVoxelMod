@@ -29,6 +29,18 @@
 
 local mod = ...
 
+-- Keep the production splash credit in the voxel mod rather than in the base
+-- game. This makes the desktop and OpenXR launchers carry the same attribution
+-- while leaving an unmodded Pokemon Red boot unchanged.
+mod.events:on("game.ready", function(payload)
+  local game = payload and payload.game
+  local field = game and game.data and game.data.field
+  if not field then return end
+  field.intro = field.intro or {}
+  field.intro.studio = field.intro.studio or {}
+  field.intro.studio.author = "POV/VR by Polymatic Labs"
+end)
+
 -- Runtime is deliberately optional at the feature level: it is safe to load
 -- without a bridge, and the renderer below only asks it for views when VR is
 -- explicitly enabled. No headset is assumed from the module being present.
