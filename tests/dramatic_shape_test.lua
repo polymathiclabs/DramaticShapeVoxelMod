@@ -2450,21 +2450,20 @@ T.eq(rects.box[2], 96, "starting on the row the player's mon stands on")
 T.eq(Battles.textRects({ phase = "menu" }).moves, nil,
   "the battle menu draws inside the box already there")
 
--- the two phases that put a SECOND box above it get a second panel, trimmed
--- to the rows above the first: two panels over the same pixels would frost it
--- twice and leave a step along the seam
+-- the two phases that put a SECOND box above it get a second layout region,
+-- trimmed to the rows above the first so the classic boxes do not overlap
 for _, phase in ipairs({ "moveSelect", "mimicSelect" }) do
   local more = Battles.textRects({ phase = phase })
   local extra = more.moves or more.mimic
   T.check(extra ~= nil, phase .. " raises a box of its own")
   T.eq(extra[2] + extra[4], more.box[2],
-    "which stops exactly where the box below it starts, so they never overlap")
+    "which stops exactly where the box below it starts")
   T.check(extra[1] >= 0 and extra[1] + extra[3] <= 160 and extra[2] >= 0,
     "and stays inside the frame the battle is drawn in")
 end
 
 -- AskName blanks the field on purpose -- the nickname prompt is meant to sit
--- on nothing -- so there is no box and no glass under one
+-- on nothing -- so there is no box layout to composite
 T.eq(next(Battles.textRects({ phase = "menu", blankForAskName = true })), nil,
   "the nickname prompt's blank field gets no glass")
 T.eq(next(Battles.textRects(nil)), nil, "and no battle, no boxes")
