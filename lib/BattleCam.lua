@@ -65,6 +65,7 @@
 local V = ...
 
 local BattleCam = {}
+local CameraMode = V.require("CameraMode")
 
 -- ------- the rig, in world pixels (a map cell is 16, a block 32)
 --
@@ -93,6 +94,16 @@ BattleCam.RIGS = {
 }
 
 BattleCam.DEFAULT_RIG = "tele"
+
+-- POV combat is an over-the-shoulder trainer view rather than the long
+-- solved lens used for the normal battle composition. The small sideways
+-- offset keeps the player's own card out of the centre of the headset while
+-- still making the enemy the natural thing to look at.
+BattleCam.POV_BACK = 18
+BattleCam.POV_SIDE = 18
+BattleCam.POV_HEIGHT = 12
+BattleCam.POV_FOCUS_HEIGHT = 10
+BattleCam.POV_FOV = math.rad(78)
 
 -- The rig an arena asks for, falling back to the default for anything that
 -- does not ask (and for a name that is not one of the two).
@@ -163,7 +174,35 @@ end
 --
 -- `groundY` is the height of the arena floor, so a fight staged on a ledge
 -- or a raised walkway is shot from above THAT rather than from inside it.
-function BattleCam.rig(arena, groundY)
+local function povRig(arena, groundY)
+  groundY = groundY or 0
+  local player, enemy = arena.player, arena.enemy
+  local dx, dz = enemy[1] - player[1], enemy[2] - player[2]
+  local length = math.max(1, math.sqrt(dx * dx + dz * dz))
+  dx, dz = dx / length, dz / length
+  local sideX, sideZ = -dz, dx
+  local eye = {
+    player[1] - dx * BattleCam.POV_BACK + sideX * BattleCam.POV_SIDE,
+    groundY + BattleCam.POV_HEIGHT,
+    player[2] - dz * BattleCam.POV_BACK + sideZ * BattleCam.POV_SIDE,
+  }
+  local focus = { enemy[1], groundY + BattleCam.POV_FOCUS_HEIGHT, enemy[2] }
+  local ex, ey, ez = eye[1] - focus[1], eye[2] - focus[2], eye[3] - focus[3]
+  local dist = math.max(1, math.sqrt(ex * ex + ey * ey + ez * ez))
+  local horiz = math.sqrt(ex * ex + ez * ez)
+  return {
+    eye = eye,
+    focus = focus,
+    fov = BattleCam.POV_FOV,
+    curve = 0,
+    mode = "pov",
+  }, math.atan2(horiz, math.max(1e-3, ey)), dist
+end
+
+function BattleCam.rig(arena, groundY, options)
+  if not (options and options.ignoreMode) and CameraMode.isPOV() then
+    return povRig(arena, groundY)
+  end
   groundY = groundY or 0
   local R = BattleCam.rigFor(arena)
   local mx, mz = arena.mid[1], arena.mid[2]

@@ -439,6 +439,14 @@ function OverworldBattle.arena()
   return session and session.arena or nil
 end
 
+-- True while the staged battle owns the scene, including the menu/text states
+-- it opens above the battle. The camera hotkey uses this to remain available
+-- for a deliberate POV/ABOVE/3RD toggle while the battle state's normal key
+-- handler continues to own every other key.
+function OverworldBattle.active()
+  return session ~= nil and not session.broken
+end
+
 function OverworldBattle.finish()
   if not session then return end
   restoreCast()

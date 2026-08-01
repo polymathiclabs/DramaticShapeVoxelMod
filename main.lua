@@ -255,17 +255,27 @@ local function renderStereo(ctx, sw, sh)
   local left, right = stereoViews(ctx, sw, sh)
   if not (left and right) then return nil end
 
+  -- OpenXR's recommended swapchain is normally larger than the desktop
+  -- window and may have a different aspect ratio. Rendering at `sw`/`sh`
+  -- leaves an undersized image in the headset, which is the black/boxed
+  -- feeling seen with Virtual Desktop even though the runtime is healthy.
+  -- Use the actual per-eye target size for both passes; the bridge requires
+  -- equal upload dimensions and normally reports the same size for both eyes.
+  local lw, lh = VRStereo.size(left, sw, sh)
+  local rw, rh = VRStereo.size(right, sw, sh)
+  local eyeW, eyeH = math.max(lw, rw), math.max(lh, rh)
+
   -- The slot names are intentionally different. Voxel3D caches each colour
   -- canvas together with its depth resource by slot, so the eye passes cannot
   -- overwrite or sample one another's buffers.
   local stereoState = {}
-  local leftCanvas = VRStereo.render(ctx.state, sw, sh, ctx.vw, ctx.vh,
+  local leftCanvas = VRStereo.render(ctx.state, eyeW, eyeH, ctx.vw, ctx.vh,
                                       ctx.paletteFor, left,
                                       VRStereo.LEFT_SLOT, stereoState)
   if not leftCanvas then return nil end
   drawWorldFx(ctx)
 
-  local rightCanvas = VRStereo.render(ctx.state, sw, sh, ctx.vw, ctx.vh,
+  local rightCanvas = VRStereo.render(ctx.state, eyeW, eyeH, ctx.vw, ctx.vh,
                                        ctx.paletteFor, right,
                                        VRStereo.RIGHT_SLOT, stereoState)
   if not rightCanvas then return nil end
@@ -277,6 +287,21 @@ local function renderStereo(ctx, sw, sh)
   return leftCanvas
 end
 
+local function copyBattleShotToEye(target, source)
+  if not (target and source) then return false end
+  local tw, th = target:getDimensions()
+  local sw, sh = source:getDimensions()
+  if not (tw and th and sw and sh and tw > 0 and th > 0
+          and sw > 0 and sh > 0) then return false end
+  love.graphics.setCanvas(target)
+  pcall(love.graphics.setBlendMode, "alpha", "alphamultiply")
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(source, 0, 0, 0, tw / sw, th / sh)
+  love.graphics.setColor(1, 1, 1, 1)
+  return true
+end
+
 -- Renderer:endFrame has already drawn the classic UI into the VR output
 -- canvas by the time the application calls this. Copy that transparent UI
 -- layer onto each eye's world canvas, then submit the completed pair. This
@@ -285,6 +310,24 @@ end
 local function finishStereo()
   local pending = pendingStereo
   if not pending then return false end
+
+  -- A staged battle is rendered after the overworld pipeline has produced its
+  -- eye pair and becomes Renderer.worldOverride for the desktop frame. Copy
+  -- that finished battle canvas into both eye targets here so combat does not
+  -- silently submit the old overworld image to the headset. The battle scene
+  -- itself is deliberately monoscopic for now; each eye receives the same
+  -- full-view arena shot while the UI is composited below as a transparent
+  -- floating layer.
+  local shot = OverworldBattle.shot()
+  if shot and shot.canvas then
+    local leftOK = copyBattleShotToEye(pending.left, shot.canvas)
+    local rightOK = copyBattleShotToEye(pending.right, shot.canvas)
+    if not (leftOK and rightOK) then
+      pendingStereo = nil
+      return false
+    end
+  end
+
   local Renderer = require("src.render.Renderer")
   local okLeft, leftDone = pcall(Renderer.compositeUi, Renderer, pending.left)
   local okRight, rightDone = pcall(Renderer.compositeUi, Renderer, pending.right)
@@ -611,6 +654,15 @@ do
   function Game:keypressed(key)
     local claim = HOTKEYS[key]
     local top = self.stack and self.stack:top()
+    -- BattleState has its own key handler, but CAMERA is an intentional
+    -- presentation toggle and must remain available while a staged battle
+    -- (or one of its choice/text overlays) is active. The CameraMode setting
+    -- is persistent, so the selected view naturally survives battle exit.
+    if key == "v" and OverworldBattle.active() then
+      CameraMode.setting:cycle(self)
+      pcall(Runtime.recenter)
+      return
+    end
     -- A screen with its own key handler gets the key first, exactly as the
     -- engine's first branch does: typing a nickname must not toggle a
     -- render mode. Only free-roam presses are ours to take.

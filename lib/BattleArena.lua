@@ -242,7 +242,11 @@ end
 -- Whether both mons would be in plain view from the battle camera.
 function BattleArena.clearance(map, arena)
   local BattleCam = V.require("BattleCam")
-  local ok, rig = pcall(BattleCam.rig, arena, 0)
+  -- Arena selection is layout work, not the active presentation mode. A POV
+  -- setting should change the camera after the stage is chosen, rather than
+  -- making an authored arena disappear merely because its long-lens
+  -- clearance was measured from a different eye position.
+  local ok, rig = pcall(BattleCam.rig, arena, 0, { ignoreMode = true })
   if not (ok and rig and rig.eye) then return true end
   local eye = rig.eye
   local H = BattleArena.MON_H

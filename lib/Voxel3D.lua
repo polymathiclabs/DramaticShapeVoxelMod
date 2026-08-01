@@ -508,17 +508,6 @@ local function quaternionRotate(q, vector)
   }
 end
 
--- OpenXR's pose is expressed in a Y-up reference space, while this renderer
--- applies a Y-down clip correction for LOVE canvases. Mirror Y before and
--- after the headset rotation so vertical head motion is not inverted; X/Z
--- (including yaw) stay in the same world handedness.
-local function quaternionRotateHead(q, vector)
-  local rotated = quaternionRotate(q, {
-    vector[1], -vector[2], vector[3],
-  })
-  return { rotated[1], -rotated[2], rotated[3] }
-end
-
 -- View and projection for a `vw` x `vh` world-pixel view centred on
 -- (cx, cy) in world pixels. Returns the combined matrix.
 function Voxel3D.viewProjection(cx, cy, vw, vh)
@@ -538,11 +527,11 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
         local baseRight = normalize3(cross3(baseForward, { 0, 1, 0 }),
                                      { 1, 0, 0 })
         local baseUp = cross3(baseRight, baseForward)
-        local forward = normalize3(quaternionRotateHead(delta, baseForward),
+        local forward = normalize3(quaternionRotate(delta, baseForward),
                                    baseForward)
-        local right = normalize3(quaternionRotateHead(delta, baseRight),
+        local right = normalize3(quaternionRotate(delta, baseRight),
                                  baseRight)
-        up = normalize3(quaternionRotateHead(delta, baseUp), baseUp)
+        up = normalize3(quaternionRotate(delta, baseUp), baseUp)
         local distance = math.sqrt(
           (baseFocus[1] - baseEye[1]) ^ 2
           + (baseFocus[2] - baseEye[2]) ^ 2
