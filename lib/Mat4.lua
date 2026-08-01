@@ -72,6 +72,22 @@ function Mat4.perspective(fovY, aspect, near, far)
            0, 0, -1, 0 }
 end
 
+-- Right-handed asymmetric perspective. The four FOV values are angles from
+-- the optical axis to the left/right/up/down clip planes, as OpenXR reports
+-- them. Keeping the offsets is important: the two headset views are not
+-- required to be symmetric.
+function Mat4.perspectiveOffAxis(left, right, up, down, near, far)
+  local l = near * math.tan(left)
+  local r = near * math.tan(right)
+  local b = near * math.tan(down)
+  local t = near * math.tan(up)
+  local d = near - far
+  return { 2 * near / (r - l), 0, (r + l) / (r - l), 0,
+           0, 2 * near / (t - b), (t + b) / (t - b), 0,
+           0, 0, (far + near) / d, (2 * far * near) / d,
+           0, 0, -1, 0 }
+end
+
 -- Right-handed orthographic projection onto GL clip space (z in [-1, 1]).
 -- The view-space box is x in [l, r], y in [b, t], z in [-f, -n] -- near and
 -- far are DISTANCES down the view's -z, exactly as in perspective() above.

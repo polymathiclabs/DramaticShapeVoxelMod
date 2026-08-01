@@ -46,6 +46,7 @@ menu.
 | control | does |
 | --- | --- |
 | `3`, or the **VOXEL** options row | OFF → 15 → 35 → 50 → 75 → OFF (camera pitch) |
+| `V`, or the **CAMERA** options row | ABOVE / 3RD / POV — switch between the elevated diorama, behind-trainer third person, and character-height first person |
 | `5`, or the **V-GRID** options row | OFF / ON — a one-pixel wireframe on every voxel |
 | `6`, or the **T-SHIFT** options row | OFF → 1 → 2 → 3 → OFF (miniature blur) |
 | `7`, or the **V-CURVE** options row | OFF → 1 → 2 → 3 — bend the world over the horizon |

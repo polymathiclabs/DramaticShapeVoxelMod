@@ -14,6 +14,7 @@ local V = ...
 
 local Mat4 = V.require("Mat4")
 local Voxel3D = V.require("Voxel3D")
+local CameraMode = V.require("CameraMode")
 local ShadowMap = V.require("ShadowMap")
 local ChunkMesher = V.require("ChunkMesher")
 local SpriteBillboards = V.require("SpriteBillboards")
@@ -454,7 +455,11 @@ local function posesOf(state, spriteColors)
     }
   end
   for _, e in ipairs(state.entities or {}) do
-    if not (state.flyAnim and e == state.player) then
+    local own = e == state.player
+    -- In POV the camera occupies the player's head, so drawing the player's
+    -- own card would put a full sprite directly in front of the lens.
+    if not (state.flyAnim and own)
+       and not (own and CameraMode.isPOV()) then
       local sprite, vx, vy, facing, phase, flip = e:pose()
       posed[#posed + 1] = {
         sprite = sprite, px = vx, py = e.py,
@@ -731,7 +736,7 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
   ShadowMap.finish(sig)
 end
 
-function VoxelScene.render(state, w, h, vw, vh, paletteFor)
+function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   -- With nothing cached at all (the first frame of a fresh toggle),
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits
@@ -741,6 +746,12 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor)
 
   local cam = state.camera
   local cx, cy = cam.x + vw / 2, cam.y + vh / 2
+  local player = state.player
+  local ground = player and groundAt(state.map, player.cellX, player.cellY)
+  -- Voxel3D.camera is temporarily occupied by a VR eye when stereo is
+  -- active; viewCamera remains the selected desktop/base pose for this
+  -- scene and is also what VRStereo uses to build its headset anchor.
+  Voxel3D.viewCamera = CameraMode.view(state, vw, vh, ground)
 
   -- the hour's light, before anything is cast or drawn: point the shared
   -- rig at the clock (or at noon, indoors -- a cave at midnight is exactly
@@ -758,7 +769,13 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor)
   local GlassMask = V.require("GlassMask")
   Voxel3D.glassMask = outdoor and GlassMask.texture(state.map.tileset) or nil
   Voxel3D.glassNight = outdoor and DayNight.windowLight() or 0
-  local g = VoxelScene.glintStep(glint, cx, cy)
+  local g
+  if options and options.glint then
+    g = options.glint
+  else
+    g = VoxelScene.glintStep(glint, cx, cy)
+    if options then options.glint = g end
+  end
   Voxel3D.glassPhase, Voxel3D.glassGlint = g.phase, g.amp
 
   local function atlasFor(map)

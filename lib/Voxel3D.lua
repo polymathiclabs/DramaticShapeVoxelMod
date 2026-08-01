@@ -309,7 +309,7 @@ local function newDepth(w, h)
   local c = nil
   for _, format in ipairs(DEPTH_FORMATS) do
     local ok, made = pcall(love.graphics.newCanvas, w, h,
-                           { format = format, readable = true })
+                           { dpiscale = 1, format = format, readable = true })
     if ok and made then c = made break end
   end
   if not c then return nil end
@@ -437,6 +437,12 @@ end
 -- way either way.
 Voxel3D.camera = nil
 
+-- The non-VR camera selected by the voxel overworld. Kept separate from
+-- `camera`, which is temporarily owned by a headset eye or a battle camera.
+-- That lets the same player-height view be used as the VR anchor without
+-- making the optional headset path responsible for choosing game cameras.
+Voxel3D.viewCamera = nil
+
 -- ------- which way, and how steeply, this camera looks
 --
 -- Two facts about the view direction, set alongside the eye and the focus
@@ -472,33 +478,110 @@ local function setLook(eye, focus)
   Voxel3D.lookFlat = { dx / flat, 0, dz / flat }
 end
 
+local function vec3(value)
+  if type(value) ~= "table" then return nil end
+  return { value[1] or value.x, value[2] or value.y, value[3] or value.z }
+end
+
+local function normalize3(value, fallback)
+  local length = math.sqrt(value[1] * value[1] + value[2] * value[2]
+    + value[3] * value[3])
+  if length < 1e-6 then return fallback end
+  return { value[1] / length, value[2] / length, value[3] / length }
+end
+
+local function cross3(a, b)
+  return { a[2] * b[3] - a[3] * b[2],
+           a[3] * b[1] - a[1] * b[3],
+           a[1] * b[2] - a[2] * b[1] }
+end
+
+local function quaternionRotate(q, vector)
+  local x, y, z, w = q.x, q.y, q.z, q.w
+  local tx = 2 * (y * vector[3] - z * vector[2])
+  local ty = 2 * (z * vector[1] - x * vector[3])
+  local tz = 2 * (x * vector[2] - y * vector[1])
+  return {
+    vector[1] + w * tx + y * tz - z * ty,
+    vector[2] + w * ty + z * tx - x * tz,
+    vector[3] + w * tz + x * ty - y * tx,
+  }
+end
+
+-- OpenXR's pose is expressed in a Y-up reference space, while this renderer
+-- applies a Y-down clip correction for LOVE canvases. Mirror Y before and
+-- after the headset rotation so vertical head motion is not inverted; X/Z
+-- (including yaw) stay in the same world handedness.
+local function quaternionRotateHead(q, vector)
+  local rotated = quaternionRotate(q, {
+    vector[1], -vector[2], vector[3],
+  })
+  return { rotated[1], -rotated[2], rotated[3] }
+end
+
 -- View and projection for a `vw` x `vh` world-pixel view centred on
 -- (cx, cy) in world pixels. Returns the combined matrix.
 function Voxel3D.viewProjection(cx, cy, vw, vh)
-  local cam = Voxel3D.camera
+  local cam = Voxel3D.camera or Voxel3D.viewCamera
   if cam then
-    local eye, focus = cam.eye, cam.focus
-    Voxel3D.eye = eye
-    -- kept beside the eye for horizonY: where the sky's pale end goes is a
-    -- question about which way this camera looks, and only these two answer it
-    Voxel3D.focus = focus
-    setLook(eye, focus)
-    local dx = eye[1] - focus[1]
-    local dy = eye[2] - focus[2]
-    local dz = eye[3] - focus[3]
-    local dist = math.max(1, math.sqrt(dx * dx + dy * dy + dz * dz))
-    -- kept for the passes that measure an ANGLE against this camera rather
-    -- than a position: the water's reflected sun is sized in radians, and
-    -- radians per canvas pixel is exactly this over the frame height
-    Voxel3D.fovY = cam.fov
-    local proj = Mat4.perspective(cam.fov, vw / vh,
-                                  math.max(1, dist * 0.05), dist * 4 + 4096)
-    -- the same clip-space Y flip the orbit needs, for the same reason: we
-    -- bypass LOVE's transform_projection and canvas coordinates run Y down
-    proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
-    -- world up, so the horizon stays level -- a placed camera that rolled
-    -- with its own pitch would tip the whole arena
-    return Mat4.mul(proj, Mat4.lookAt(eye, focus, { 0, 1, 0 }))
+    local eye, focus = vec3(cam.eye), vec3(cam.focus)
+    if eye and focus then
+      local up = vec3(cam.up) or { 0, 1, 0 }
+      local delta = cam.orientationDelta
+      local baseEye, baseFocus = vec3(cam.baseEye), vec3(cam.baseFocus)
+      if type(delta) == "table" and baseEye and baseFocus then
+        local baseForward = normalize3({
+          baseFocus[1] - baseEye[1],
+          baseFocus[2] - baseEye[2],
+          baseFocus[3] - baseEye[3],
+        }, { 0, 0, -1 })
+        local baseRight = normalize3(cross3(baseForward, { 0, 1, 0 }),
+                                     { 1, 0, 0 })
+        local baseUp = cross3(baseRight, baseForward)
+        local forward = normalize3(quaternionRotateHead(delta, baseForward),
+                                   baseForward)
+        local right = normalize3(quaternionRotateHead(delta, baseRight),
+                                 baseRight)
+        up = normalize3(quaternionRotateHead(delta, baseUp), baseUp)
+        local distance = math.sqrt(
+          (baseFocus[1] - baseEye[1]) ^ 2
+          + (baseFocus[2] - baseEye[2]) ^ 2
+          + (baseFocus[3] - baseEye[3]) ^ 2)
+        focus = { eye[1] + forward[1] * distance,
+                  eye[2] + forward[2] * distance,
+                  eye[3] + forward[3] * distance }
+        -- Keep the basis orthogonal after a long sequence of headset updates.
+        up = normalize3(cross3(right, forward), up)
+      end
+      Voxel3D.eye = eye
+      -- kept beside the eye for horizonY: where the sky's pale end goes is a
+      -- question about which way this camera looks, and only these two answer it
+      Voxel3D.focus = focus
+      setLook(eye, focus)
+      local dx = eye[1] - focus[1]
+      local dy = eye[2] - focus[2]
+      local dz = eye[3] - focus[3]
+      local dist = math.max(1, math.sqrt(dx * dx + dy * dy + dz * dz))
+      -- kept for the passes that measure an ANGLE against this camera rather
+      -- than a position: the water's reflected sun is sized in radians, and
+      -- radians per canvas pixel is exactly this over the frame height
+      local near, far = math.max(1, dist * 0.05), dist * 4 + 4096
+      local fov = cam.fov
+      local fovY = type(fov) == "table" and (fov.up - fov.down) or fov
+      Voxel3D.fovY = fovY
+      local proj
+      if type(fov) == "table" and fov.left and fov.right
+         and fov.up and fov.down then
+        proj = Mat4.perspectiveOffAxis(fov.left, fov.right, fov.up,
+                                       fov.down, near, far)
+      else
+        proj = Mat4.perspective(fov, vw / vh, near, far)
+      end
+      -- the same clip-space Y flip the orbit needs, for the same reason: we
+      -- bypass LOVE's transform_projection and canvas coordinates run Y down
+      proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
+      return Mat4.mul(proj, Mat4.lookAt(eye, focus, up))
+    end
   end
 
   local a = Voxel.angle
@@ -640,8 +723,11 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   local name = slot or "world"
   local slotHeld = slots[name]
   if not (slotHeld and slotHeld.w == w and slotHeld.h == h) then
-    local ok, c = pcall(love.graphics.newCanvas, w, h)
-    if not ok then return false end
+    -- VR submission uses Canvas:newImageData(), so make the colour target
+    -- explicitly readable and keep its pixel size independent of display DPI.
+    local ok, c = pcall(love.graphics.newCanvas, w, h,
+                        { dpiscale = 1, format = "rgba8", readable = true })
+    if not ok or not c then return false end
     c:setFilter("nearest", "nearest")
     if slotHeld then releaseSlot(slotHeld) end
     -- the depth canvas is sized with its colour, so a window resize

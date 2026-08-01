@@ -29,6 +29,11 @@
 
 local mod = ...
 
+-- Runtime is deliberately optional at the feature level: it is safe to load
+-- without a bridge, and the renderer below only asks it for views when VR is
+-- explicitly enabled. No headset is assumed from the module being present.
+local Runtime = require("src.vr.Runtime")
+
 -- ------- the mod namespace
 --
 -- lib/ modules require each other through V rather than package.path: a
@@ -73,6 +78,9 @@ end
 local Voxel = V.require("VoxelState")
 local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
+local Pipelines = require("src.render.Pipelines")
+local CameraMode = V.require("CameraMode")
+local VRStereo = V.require("VRStereo")
 local TiltShift = V.require("TiltShift")
 local ChunkMesher = V.require("ChunkMesher")
 local VoxelGrid = V.require("VoxelGrid")
@@ -82,6 +90,78 @@ local BattleExit = V.require("BattleExit")
 local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
 local Water = V.require("Water")
+
+-- The regular Options screen uses ModSetting:row(), rather than the mod
+-- manager event used by the settings page. Re-anchor VR for that path too.
+CameraMode.setting.onChanged = function()
+  pcall(Runtime.recenter)
+end
+
+-- POV movement keeps the trainer's facing as the camera's heading: forward
+-- input advances in that heading, while left/right rotate in place. The
+-- engine hook below transforms the direction before its normal collision,
+-- ledge, warp and boulder handling, so ABOVE and 3RD retain classic controls.
+local POV_TURN = {
+  left = { down = "right", right = "up", up = "left", left = "down" },
+  right = { down = "left", left = "up", up = "right", right = "down" },
+}
+local POV_BACK = { down = "up", up = "down", left = "right", right = "left" }
+
+local function applyPovTurn(player, physicalDir, ctx)
+  local facing = POV_TURN[physicalDir][player.facing]
+  if facing then player:tryMove(facing, ctx.map, ctx.entities) end
+end
+
+local function povMovementActive()
+  -- Camera controls only change while this mod actually owns the world pass.
+  -- Voxel.active() can remain true for a short fade or when the renderer has
+  -- declined a frame, so also require the effective pipeline and its hardware
+  -- gate. A 2D fallback must retain the normal Pokémon controls.
+  if not CameraMode.isPOV() or not Voxel.active() or not Voxel.ready then
+    return false
+  end
+  if Pipelines.worldPipeline() ~= "voxel" then return false end
+  local ok, available = pcall(Voxel3D.available)
+  return ok and available == true
+end
+
+mod.hooks:wrap("movement.direction", function(next, dir, ctx)
+  if not povMovementActive() then return next(dir, ctx) end
+  local player = ctx and ctx.player
+  if not player then return next(dir, ctx) end
+
+  if dir == "left" or dir == "right" then
+    -- The core input layer reports a press edge for a new key/stick
+    -- direction. Consuming the held direction prevents one held key from
+    -- spinning the player every fixed update. If the edge arrived mid-step,
+    -- retain it until the normal movement gate reaches the landing frame.
+    local pressed = ctx.input and ctx.input:wasPressed(dir)
+    if pressed then
+      player.povTurnPending = dir
+      if not player.moving and not player.inputLocked then
+        player.povTurnPending = nil
+        applyPovTurn(player, dir, ctx)
+      end
+    elseif not player.moving and not player.inputLocked
+           and player.povTurnPending == dir
+           and ctx.input and ctx.input:isDown(dir) then
+      player.povTurnPending = nil
+      applyPovTurn(player, dir, ctx)
+    end
+    return false
+  end
+
+  if dir == "up" and not player.moving and not player.inputLocked then
+    return player.facing
+  end
+  if dir == "down" and not player.moving and not player.inputLocked then
+    -- Reverse movement keeps the trainer/camera heading intact, so looking
+    -- behind remains a deliberate turn rather than an accidental side effect
+    -- of pressing Back.
+    return { dir = POV_BACK[player.facing], preserveFacing = true }
+  end
+  return next(dir, ctx)
+end)
 
 -- Forward declaration: the voxel pipeline's update hook (registered below)
 -- calls this, and it is defined further down with the settings it drives.
@@ -115,6 +195,103 @@ local function sceneSize(ctx)
     if pw and ph and pw > 0 and ph > 0 then return pw, ph end
   end
   return ctx.width, ctx.height
+end
+
+local function drawWorldFx(ctx)
+  if not Voxel3D.beginOverlay() then return end
+  ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
+             ctx.scale)
+  Voxel3D.endOverlay()
+end
+
+local function runtimeEnabled()
+  local ok, enabled = pcall(Runtime.isEnabled)
+  return ok and enabled == true
+end
+
+local function vrFrameReady()
+  -- The core game loop owns beginFrame/abortFrame for every frame, including
+  -- menus and battles. The voxel pass only decides whether this frame's
+  -- tracked views are renderable.
+  if type(Runtime.shouldRender) ~= "function" then return true end
+  local ok, ready = pcall(Runtime.shouldRender)
+  return ok and ready ~= false
+end
+
+local function stereoOverworld(ctx)
+  if not (ctx and ctx.state and runtimeEnabled()) then return false end
+  if not Voxel.active() or not Voxel3D.available() then return false end
+
+  -- The world pipeline can still draw beneath a dialogue or menu. Keep the
+  -- true stereo world alive for those overlays; finishStereo() adds the
+  -- screen-space UI to both eye canvases after Game:draw has completed.
+  local Game = require("src.core.Game")
+  return Game and Game.overworld == ctx.state
+end
+
+local function stereoViews(ctx, sw, sh)
+  local aspect = sw / sh
+  local base = VRStereo.baseCamera(ctx.state, ctx.vw, ctx.vh, aspect)
+  if not base then return nil, nil end
+  local ok, left, right = pcall(Runtime.views, base, aspect)
+  if not ok then return nil, nil end
+  return VRStereo.camera(left), VRStereo.camera(right)
+end
+
+local pendingStereo
+local function renderSingleEye(ctx, sw, sh)
+  pendingStereo = nil
+  local canvas = VoxelScene.render(ctx.state, sw, sh,
+                                   ctx.vw, ctx.vh, ctx.paletteFor)
+  if not canvas then return nil end
+  drawWorldFx(ctx)
+  return canvas
+end
+
+local function renderStereo(ctx, sw, sh)
+  pendingStereo = nil
+  if not stereoOverworld(ctx) or not vrFrameReady() then return nil end
+
+  local left, right = stereoViews(ctx, sw, sh)
+  if not (left and right) then return nil end
+
+  -- The slot names are intentionally different. Voxel3D caches each colour
+  -- canvas together with its depth resource by slot, so the eye passes cannot
+  -- overwrite or sample one another's buffers.
+  local stereoState = {}
+  local leftCanvas = VRStereo.render(ctx.state, sw, sh, ctx.vw, ctx.vh,
+                                      ctx.paletteFor, left,
+                                      VRStereo.LEFT_SLOT, stereoState)
+  if not leftCanvas then return nil end
+  drawWorldFx(ctx)
+
+  local rightCanvas = VRStereo.render(ctx.state, sw, sh, ctx.vw, ctx.vh,
+                                       ctx.paletteFor, right,
+                                       VRStereo.RIGHT_SLOT, stereoState)
+  if not rightCanvas then return nil end
+  drawWorldFx(ctx)
+
+  -- Keep both canvases until the core loop has finished all world post-
+  -- processing. The bridge frame is ended only after love.draw returns.
+  pendingStereo = { left = leftCanvas, right = rightCanvas }
+  return leftCanvas
+end
+
+-- Renderer:endFrame has already drawn the classic UI into the VR output
+-- canvas by the time the application calls this. Copy that transparent UI
+-- layer onto each eye's world canvas, then submit the completed pair. This
+-- keeps dialogue, menus and prompts in the headset instead of falling back to
+-- a mono desktop frame.
+local function finishStereo()
+  local pending = pendingStereo
+  if not pending then return false end
+  local Renderer = require("src.render.Renderer")
+  local okLeft, leftDone = pcall(Renderer.compositeUi, Renderer, pending.left)
+  local okRight, rightDone = pcall(Renderer.compositeUi, Renderer, pending.right)
+  pendingStereo = nil
+  if not (okLeft and leftDone and okRight and rightDone) then return false end
+  Runtime.queue(pending.left, pending.right)
+  return true
 end
 
 local voidFill = { last = nil }
@@ -203,15 +380,12 @@ mod.content.render_pipelines:register("voxel", {
     -- a magnified low-res image, while the FX closures keep drawing in
     -- world-pixel units.
     local sw, sh = sceneSize(ctx)
-    local canvas = VoxelScene.render(ctx.state, sw, sh,
-                                     ctx.vw, ctx.vh, ctx.paletteFor)
-    if not canvas then return nil end   -- fall back to the 2D path
-    if Voxel3D.beginOverlay() then
-      ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
-                 ctx.scale)
-      Voxel3D.endOverlay()
-    end
-    return canvas
+    local canvas = renderStereo(ctx, sw, sh)
+    if canvas then return canvas end
+    -- Stereo is opportunistic. A missing mesh, a bad pose, a declined
+    -- submission, or an unavailable base pass all return to the exact
+    -- single-eye renderer used when VR is disabled.
+    return renderSingleEye(ctx, sw, sh)
   end,
 
   invalidate = function()
@@ -237,7 +411,18 @@ mod.content.render_pipelines:register("tiltshift", {
   -- dialog box in front of it.  A pass-through when the level is 0 or the
   -- shader is unavailable, so the frame is untouched in every other case.
   worldPresent = function(canvas)
-    return TiltShift.apply(canvas)
+    local left = TiltShift.apply(canvas)
+    local pending = pendingStereo
+    if pending then
+      local right = pending.right
+      local ok, processed = pcall(TiltShift.apply, right)
+      if ok and processed then right = processed end
+      -- Keep the pair alive until the core has finished Game:draw.  The
+      -- dialogue/menu UI is drawn after this worldPresent hook; finishStereo
+      -- copies that transparent layer into both eyes before queueing them.
+      pendingStereo = { left = left, right = right }
+    end
+    return left
   end,
 
   invalidate = function()
@@ -334,6 +519,10 @@ local function stagedBattles()
 end
 
 local SETTINGS = {
+  { CameraMode.setting,
+    "Choose the voxel view: ABOVE keeps the diorama, 3RD follows behind "
+    .. "the trainer, and POV places the camera at the trainer's eyes.",
+    full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
     "Bend the world down over the horizon, Animal Crossing style." },
@@ -377,6 +566,7 @@ mod.options:define(schema)
 --   7  V-CURVE  cycle the horizon bend       (new)
 --   8  3D-BTL   toggle overworld battles     (new)
 --   9  WATER    cycle the water reflections  (new; 9 was T-SHIFT's old key)
+--   V  CAMERA   cycle ABOVE / 3RD / POV      (new)
 --
 -- Only 6 arrives by the documented route. Game:keypressed answers the
 -- engine's own display keys FIRST and returns -- 2 COLORS, 3 TILT, 4 ZOOM,
@@ -410,6 +600,7 @@ local HOTKEYS = {
   ["7"] = WorldCurve.setting,
   ["8"] = OverworldBattle.setting,
   ["9"] = Water.setting,
+  ["v"] = CameraMode.setting,
 }
 
 do
@@ -468,6 +659,7 @@ do
         -- when the fight starts, so flipping it from inside one would be a
         -- switch that appeared to do nothing.
         claim:cycle(self)
+        if claim == CameraMode.setting then pcall(Runtime.recenter) end
         -- 8 is one of the two ways staged battles get switched on, and they
         -- pin BATTLE LAYOUT to OG (see the rows hook). The other keys
         -- parameterise the pass and leave the layout alone; the guard answers
@@ -609,6 +801,7 @@ mod.events:on("mod.options_changed", function(payload)
   for _, entry in ipairs(SETTINGS) do
     if payload.key == entry[1].key then entry[1]:sync(payload.value) end
   end
+  if payload.key == CameraMode.setting.key then pcall(Runtime.recenter) end
   -- 3D-BTL switched on from the manager's page pins BATTLE LAYOUT exactly as
   -- the OPTIONS row does. The manager persists its own value; this is the one
   -- that has to follow it.
@@ -864,3 +1057,4 @@ mod.exports.version = "1.4.0"
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
+mod.exports.finishVR = finishStereo
