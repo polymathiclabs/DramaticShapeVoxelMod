@@ -70,7 +70,6 @@ BattleScene.SHADOW_ALPHA = 0.68
 -- Which rung of the sky ramp an indoor void is painted with. A room has no
 -- sky, but it does have somewhere the geometry stops, and leaving that
 -- transparent would show the letterbox clear through the gaps.
-local INDOOR_SHADE = 4
 
 -- ------- where the GB frame sits inside the window
 --
@@ -402,12 +401,12 @@ function BattleScene.render(state, arena, textures, token)
               cards, token, host, neighbors, water, nbWater)
 
   -- An opaque void either way. Outdoors the camera is low enough that the
-  -- horizon is genuinely in frame, so it is sky; indoors it is the dark end
-  -- of the same ramp, which is a room's "past the wall". Transparent -- the
-  -- free-roam default -- would let the letterbox clear through wherever the
-  -- geometry stops.
+  -- horizon is genuinely in frame, so it is sky; indoors it is the distant
+  -- plaster/rock envelope, which makes the arena feel like its map instead of
+  -- a black cut-out. Transparent -- the free-roam default -- would let the
+  -- letterbox clear through wherever the geometry stops.
   local sky = VoxelScene.skyColor(host, 1)
-             or VoxelScene.skyShade(INDOOR_SHADE, 1)
+             or VoxelScene.indoorBackdrop(host)
 
   Voxel3D.camera = cam
   -- the sun is turned up for the arena and put back afterwards, so the

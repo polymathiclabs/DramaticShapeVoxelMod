@@ -144,10 +144,10 @@ end
 -- Where the sky's bottom edge goes, in canvas pixels: the camera's own horizon
 -- when that is in frame, and SPAN of the frame when it is not (see SPAN). nil
 -- when there is no room for any of it.
-function Sky.region(h, horizonY)
+function Sky.region(h, horizonY, span)
   if not (h and h > 0) then return nil end
   local edge = horizonY
-  if not (edge and edge > 0) then edge = h * Sky.SPAN end
+  if not (edge and edge > 0) then edge = h * (span or Sky.SPAN) end
   edge = math.min(edge, h)
   if edge < 1 then return nil end
   return edge
@@ -175,6 +175,10 @@ uniform float glowAmt;  // twilight warmth around the low sun; 0 = none
 uniform vec2 glowPos;   // the sun disc, in canvas pixels
 uniform float glowInvR; // 1 / the glow's reach
 uniform vec3 glowColor;
+uniform float textureAmt; // subtle room/cave surface variation
+uniform float textureScale; // variation size in diorama cells
+uniform float textureMode; // 0 = plaster, 1 = rock
+uniform float ditherAmt; // outdoor palette dither; room envelopes use flat bands
 
 // Band `i`, read from its own texel centre. The index is clamped rather than
 // trusted: `pos` below can land exactly on `count` when the arithmetic is
@@ -191,7 +195,7 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
   float base = min(floor(pos), count - 1.0);
   vec3 c = bandAt(base);
   float parity = mod(floor(sc.x / cell) + floor(sc.y / cell), 2.0);
-  if (base < count - 1.0 && (pos - base) > start) {
+  if (ditherAmt > 0.5 && base < count - 1.0 && (pos - base) > start) {
     if (parity < 0.5) { c = bandAt(base + 1.0); }
   }
   // The sunset's warmth, radiating from the disc: posterised to a few rungs
@@ -205,6 +209,17 @@ vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
     float lvl = floor(g * 4.0);
     if (g * 4.0 - lvl > 0.5 && parity < 0.5) { lvl += 1.0; }
     c = mix(c, glowColor, min(lvl / 3.0, 1.0) * 0.65);
+  }
+  if (textureAmt > 0.0) {
+    float tile = max(textureScale, 1.0) * cell;
+    float gx = floor(sc.x / tile);
+    float gy = floor(sc.y / tile);
+    float mark = mod(gx * 17.0 + gy * 29.0 + gx * gy * 3.0, 13.0);
+    float threshold = textureMode > 0.5 ? 3.0 : 1.0;
+    if (mark < threshold) {
+      float shade = textureMode > 0.5 ? 0.68 : 0.90;
+      c = mix(c, c * shade, textureAmt);
+    }
   }
   return vec4(c, alpha);
 }
@@ -445,7 +460,7 @@ function Sky.paint(w, h, sky, horizonY, cell, body)
   if not (w and h and w > 0 and h > 0) then return false end
   local g = love.graphics
   if not (g and g.rectangle) then return false end
-  local edge = Sky.region(h, horizonY)
+  local edge = Sky.region(h, horizonY, sky.regionSpan)
   if not edge then return false end
   local alpha = sky[4] or 1
   cell = math.max(1, math.floor((cell or 1) + 0.5))
@@ -484,6 +499,11 @@ function Sky.paint(w, h, sky, horizonY, cell, body)
         sh:send("glowInvR", 1 / math.max(1, w * Sky.GLOW_REACH))
         sh:send("glowColor", { gc[1] / 255, gc[2] / 255, gc[3] / 255 })
       end
+      sh:send("textureAmt", math.max(0, math.min(1,
+        tonumber(sky.textureAmt) or 0)))
+      sh:send("textureScale", math.max(1, tonumber(sky.textureScale) or 8))
+      sh:send("textureMode", tonumber(sky.textureMode) or 0)
+      sh:send("ditherAmt", sky.dither == false and 0 or 1)
     end)
     if sent then
       g.setShader(sh)
