@@ -528,11 +528,9 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
                                      { 1, 0, 0 })
         local baseUp = cross3(baseRight, baseForward)
         local tracked = quaternionRotate(delta, baseForward)
-        -- OpenXR reports the headset in a Y-up frame, while the LOVE view
-        -- presents the rendered canvas with its vertical axis inverted. Keep
-        -- yaw unchanged but invert only the pitch component so tilting the
-        -- headset up moves the view up and tilting down moves it down.
-        tracked[2] = -tracked[2]
+        -- The headset delta and the voxel world are both Y-up. Keep the pose
+        -- direction untouched here; only the projection's clip-space Y
+        -- conversion below adapts the rendered canvas to LOVE coordinates.
         local forward = normalize3(tracked, baseForward)
         -- Use the tracked forward direction, then rebuild the horizontal
         -- basis against world-up. This keeps pitch and yaw equivalent while
