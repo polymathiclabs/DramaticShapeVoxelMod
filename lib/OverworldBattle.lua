@@ -182,16 +182,18 @@ OverworldBattle.HUD_RECT = {
 -- owns it. The source remains pixel-art sized; only the world placement is
 -- reduced, so the HP bars are not resampled into the same visual weight as a
 -- full battle screen.
-OverworldBattle.HUD_SCALE = 0.64
+OverworldBattle.HUD_SCALE = 0.32
 -- POV puts the cards farther from the eye than the composed battle shot. A
 -- smaller panel keeps the status readable without making it dwarf a distant
 -- first-person Pokemon.
-OverworldBattle.HUD_SCALE_POV = 0.42
+OverworldBattle.HUD_SCALE_POV = 0.21
 OverworldBattle.HUD_GAP = 5
 -- The projection mark is at the feet. Lift past the front-pic silhouette so
 -- the compact card hovers above the head instead of covering the Pokemon.
-OverworldBattle.HUD_LIFT = 30
-OverworldBattle.HUD_LIFT_POV = 8
+OverworldBattle.HUD_LIFT = 44
+OverworldBattle.HUD_LIFT_ENEMY = 60
+OverworldBattle.HUD_LIFT_POV = 14
+OverworldBattle.HUD_LIFT_ENEMY_POV = 22
 OverworldBattle.HUD_MARGIN = 6
 
 -- ------- the box at the bottom, matching the open-world dialogue
@@ -276,8 +278,14 @@ local function projectedHudRect(side, source, shot, scale)
   if not (mark and mark[1] and mark[2]) then return nil end
   local s = shot.scale
   local w, h = source[3] * s * scale, source[4] * s * scale
-  local lift = shot.pov and OverworldBattle.HUD_LIFT_POV
-              or OverworldBattle.HUD_LIFT
+  local lift
+  if shot.pov then
+    lift = side == "enemy" and OverworldBattle.HUD_LIFT_ENEMY_POV
+                           or OverworldBattle.HUD_LIFT_POV
+  else
+    lift = side == "enemy" and OverworldBattle.HUD_LIFT_ENEMY
+                           or OverworldBattle.HUD_LIFT
+  end
   local gap = (OverworldBattle.HUD_GAP + lift) * s
   local margin = OverworldBattle.HUD_MARGIN * s
   local mx = shot.lx + mark[1] * s

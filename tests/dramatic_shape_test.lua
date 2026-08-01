@@ -2371,6 +2371,10 @@ near(hudShot.ly + hudShot.player[2] * hudShot.scale
        - (hudRects.player[2] + hudRects.player[4]),
      (Battles.HUD_GAP + Battles.HUD_LIFT) * hudShot.scale,
      "the player's panel clears the Pokemon silhouette")
+near(hudShot.ly + hudShot.enemy[2] * hudShot.scale
+       - (hudRects.enemy[2] + hudRects.enemy[4]),
+     (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY) * hudShot.scale,
+     "the foe's panel is lifted farther from the Pokemon")
 
 near(hudRects.enemy[3], hudRect.enemy[3] * hudShot.scale * hudScale,
      "the foe's status window is reduced in the world")
@@ -2393,8 +2397,12 @@ T.check(povRects.enemy[3] < hudRects.enemy[3],
   "POV status windows are smaller than the composed battle windows")
 near(povShot.ly + povShot.enemy[2] * povShot.scale
        - (povRects.enemy[2] + povRects.enemy[4]),
+     (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY_POV) * povShot.scale,
+     "POV lifts the foe's status window farther from its silhouette")
+near(povShot.ly + povShot.player[2] * povShot.scale
+       - (povRects.player[2] + povRects.player[4]),
      (Battles.HUD_GAP + Battles.HUD_LIFT_POV) * povShot.scale,
-     "POV keeps the foe's status window close to its silhouette")
+     "POV lifts the player's status window above its silhouette")
 
 -- The intro/faint bands follow the same character-relative placement, while
 -- retaining their full-width source rows so pokeballs are not dropped.
