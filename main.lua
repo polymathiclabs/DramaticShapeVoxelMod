@@ -329,6 +329,14 @@ local function finishStereo()
   end
 
   local Renderer = require("src.render.Renderer")
+  -- The world stays full-view in the eye canvases. The classic battle/menu
+  -- canvas is a separate floating panel, so keep it small and place a battle
+  -- command box toward the lower part of the view with a comfortable bottom
+  -- margin. Renderer:endFrame has already captured this frame's UI canvas.
+  if Renderer.uiComposite then
+    Renderer.uiComposite.vrScale = 0.20
+    Renderer.uiComposite.vrPlacement = shot and "battle" or "center"
+  end
   local okLeft, leftDone = pcall(Renderer.compositeUi, Renderer, pending.left)
   local okRight, rightDone = pcall(Renderer.compositeUi, Renderer, pending.right)
   pendingStereo = nil
