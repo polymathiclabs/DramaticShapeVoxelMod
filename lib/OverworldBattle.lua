@@ -297,6 +297,21 @@ local function projectedHudRect(side, source, shot, scale)
   return { x, y, w, h }
 end
 
+-- The player's feet are lower in the battle composition than the enemy's, so
+-- simply lifting the player card from its own mark leaves it stranded beside
+-- the Pokemon. Keep it above that mark, but when there is room, tuck it just
+-- below the enemy card as well. This gives both sides the same clear
+-- character-relative relationship without letting the two status blocks
+-- collide vertically.
+local function alignPlayerBelowEnemy(player, enemy, shot)
+  if not (player and enemy and shot and shot.scale) then return end
+  local gap = OverworldBattle.HUD_GAP * shot.scale
+  local desired = enemy[2] + enemy[4] + gap
+  local margin = OverworldBattle.HUD_MARGIN * shot.scale
+  local top = math.min(player[2], desired)
+  player[2] = clamp(top, margin, shot.ph - player[4] - margin)
+end
+
 function OverworldBattle.snapRects(shot)
   local scale = shot.pov and OverworldBattle.HUD_SCALE_POV
                 or OverworldBattle.HUD_SCALE
@@ -306,6 +321,7 @@ function OverworldBattle.snapRects(shot)
     player = projectedHudRect("player", OverworldBattle.HUD_RECT.player,
                               shot, scale),
   }
+  alignPlayerBelowEnemy(rects.player, rects.enemy, shot)
   -- During the intro/faint phases the source band can contain pokeballs even
   -- when the status block is not live yet. Give that band the same compact,
   -- character-relative placement instead of reviving the old screen-edge HUD.
@@ -313,6 +329,7 @@ function OverworldBattle.snapRects(shot)
   for side, source in pairs(OverworldBattle.HUD_BAND) do
     bands[side] = projectedHudRect(side, source, shot, scale)
   end
+  alignPlayerBelowEnemy(bands.player, bands.enemy, shot)
   return rects, bands
 end
 
