@@ -242,10 +242,10 @@ OverworldBattle.HUD_MARGIN = 6
 -- VR compositor makes the whole classic UI canvas a small floating panel.
 --
 -- These are the boxes BattleState:drawTextArea lays down, as GB-frame rects.
--- READ-ONLY duplicates of that function's own branches, the same kind of
--- mirror hudLive is and for the same reason: there is no seam that reports "a
--- move menu is up". The rects remain useful for the fallback backdrop and
--- brightness probe; the opaque battle box drawn afterward covers them.
+-- READ-ONLY duplicates of that function's own branches, kept for layout tests
+-- and future callers that need to know which classic box is active. They are
+-- deliberately not world panels: the actual battle box must remain only on
+-- the same small floating UI canvas as an open-world dialogue box.
 --
 -- Each rect stops where the next one starts rather than overlapping it: two
 -- panels over the same pixels would frost it twice and leave a visible step
@@ -345,17 +345,6 @@ function OverworldBattle.snapRects(shot)
     bands[side] = projectedHudRect(side, source, shot, scale)
   end
   return rects, bands
-end
-
--- A rect measured in the GB frame, in WORLD-canvas pixels: where the letterbox
--- blit will actually put it. The text box has not moved anywhere -- it is drawn
--- where it always was -- but its glass is laid into the world image alongside
--- the HUDs' (see snapHUDs), which is the surface that reaches the screen a
--- pixel to a pixel rather than magnified out of a 160x144 canvas.
-local function toWorld(rect, shot)
-  local s = shot.scale
-  return { shot.lx + rect[1] * s, shot.ly + rect[2] * s,
-           rect[3] * s, rect[4] * s }
 end
 
 -- ------- the live battle
@@ -1319,20 +1308,12 @@ function OverworldBattle.snapHUDs(battle, shot)
   local live = {}
   if enemy then live.enemy = rects.enemy end
   if player then live.player = rects.player end
-  -- and the text box's own glass, on the same pass. It stays in the middle of
-  -- the frame where the engine draws it -- only the HUDs were snapped out --
-  -- so its GB rect is mapped into the letterbox rather than to an edge.
-  for key, rect in pairs(OverworldBattle.textRects(battle)) do
-    live[key] = toWorld(rect, shot)
-  end
-  -- measured under the SNAPPED rects: the panels are over whatever the world
-  -- shows at the window's edges now, which is not what was behind them in the
-  -- middle of the frame. ONE verdict over all of them, HUDs and box together,
-  -- for the reason BattleHud.verdict gives: a frame with white glyphs in the
-  -- corner and black ones on the menu reads as a bug rather than as adaptation.
+  -- The battle text/menu is intentionally absent here. It is drawn once on
+  -- the classic UI canvas below and the VR compositor scales that canvas to
+  -- the same floating dialogue size used by the overworld.
+  -- Measured under the snapped HUD rects, one verdict keeps both status
+  -- windows readable without allowing the dialogue box to affect their ink.
   local dark = BattleHud.verdict(live, shot, true)
-  -- the box's own ink is flipped where the engine draws it, in the GB frame,
-  -- so the answer has to outlive this function (see drawHudPanels)
   if session then session.dark = dark end
   local layer = OverworldBattle.hudTexture(battle, slide, dark)
   if not layer then return false end
@@ -1365,13 +1346,12 @@ function OverworldBattle.snapHUDs(battle, shot)
   return true
 end
 
--- Lay the frosted glass down under whichever HUD and box are about to draw,
--- and record which way the glyphs have to flip.
+-- Lay the frosted glass down under whichever HUD is about to draw, and record
+-- which way its glyphs have to flip. Battle text/menu paper is left entirely
+-- to the classic UI canvas so it cannot become a second, full-size VR panel.
 --
 -- The panels are the fallback path only: normally the HUDs are snapped out to
--- the window's edges and their glass, and the box's, went into the world image
--- with them (snapHUDs). The VERDICT is needed either way -- the box's ink is
--- drawn here, in the GB frame, whichever path laid the glass under it.
+-- the world image (snapHUDs). The VERDICT is needed either way for their ink.
 function OverworldBattle.drawHudPanels(battle)
   local shot = battle.dramaticShapeShot
   battle.dramaticShapeDark = nil
@@ -1386,7 +1366,6 @@ function OverworldBattle.drawHudPanels(battle)
   local live = {}
   if enemy then live.enemy = rect.enemy end
   if player then live.player = rect.player end
-  for key, r in pairs(OverworldBattle.textRects(battle)) do live[key] = r end
   if not next(live) then return end
   local dark = BattleHud.verdict(live, shot)
   battle.dramaticShapeDark = dark
