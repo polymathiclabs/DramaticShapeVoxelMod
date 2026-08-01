@@ -230,23 +230,31 @@ local function drawShadow(sprite, px, py, facing, phase, flip, gh, lift)
 end
 
 -- Where a billboard character's card stands: on the middle of its cell at
--- height `y`, pivoted at the feet and tipped back by exactly the camera's
--- pitch. The slab is built centred on its sprite plane (z = 0), so only the
--- x anchor shifts; the relief bulges symmetrically front and back of it.
+-- height `y`. ABOVE and 3RD use the original pitched card, which keeps the
+-- flat sprite readable from their elevated cameras. POV uses a genuinely
+-- upright card and turns it toward the headset so the character does not
+-- become an edge-on or overhead-only sliver.
 --
 -- Shared by the solid draw and the silhouette below, so the two can never
 -- drift apart -- a silhouette standing anywhere but exactly behind the
 -- figure would read as a second character.
 local function billboardMatrix(px, py, y, mirror)
   local Voxel = V.require("VoxelState")
+  local yaw = 0
+  if CameraMode.isPOV() and Voxel3D.eye then
+    yaw = math.atan2(Voxel3D.eye[1] - (px + 8),
+                     Voxel3D.eye[3] - (py + 8))
+  end
+  local pitch = CameraMode.isPOV() and 0 or (Voxel.angle - math.pi / 2)
   local m = Mat4.mul(Mat4.translate(px + 8, y, py + 8),
-                     Mat4.rotateX(Voxel.angle - math.pi / 2))
+                     Mat4.mul(Mat4.rotateY(yaw), Mat4.rotateX(pitch)))
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
   return Mat4.mul(m, Mat4.translate(-8, 0, 0))
 end
 
 local function billboardPull()
   local Voxel = V.require("VoxelState")
+  if CameraMode.isPOV() then return 1.5 end
   return VoxelScene.pull(math.max(Voxel.angle, 0.05))
 end
 
@@ -261,8 +269,14 @@ end
 -- cell, he is standing where he was drawn, which may straddle two.
 local function figureMatrix(f, offX, offZ)
   local Voxel = V.require("VoxelState")
-  return Mat4.mul(Mat4.translate(f.wx + (offX or 0), f.y, f.wz + (offZ or 0)),
-                  Mat4.rotateX(Voxel.angle - math.pi / 2))
+  local x, z = f.wx + (offX or 0), f.wz + (offZ or 0)
+  local yaw = 0
+  if CameraMode.isPOV() and Voxel3D.eye then
+    yaw = math.atan2(Voxel3D.eye[1] - x, Voxel3D.eye[3] - z)
+  end
+  local pitch = CameraMode.isPOV() and 0 or (Voxel.angle - math.pi / 2)
+  return Mat4.mul(Mat4.translate(x, f.y, z),
+                  Mat4.mul(Mat4.rotateY(yaw), Mat4.rotateX(pitch)))
 end
 
 -- What the sun sees: the same card UNLEANED and flattened, exactly as
