@@ -86,6 +86,16 @@ local SKY_SHADES = { { 222, 242, 255 }, { 135, 196, 240 },
                      { 64, 120, 192 }, { 16, 40, 80 } }
 local SKY_SHADE = 2       -- the ramp's "sky" proper; 1 is its highlight
 
+-- Indoor maps do not have a literal sky, but leaving their far void
+-- transparent makes the desktop mirror and headset view read as a black
+-- cut-out. These are deliberately distant, shader-painted envelopes rather
+-- than nearby wall meshes: the room feels bounded without reducing the
+-- player's usable space or introducing another surface the camera can clip.
+local ROOM_SHADES = { { 248, 246, 236 }, { 232, 229, 217 },
+                      { 210, 207, 195 }, { 184, 181, 169 } }
+local CAVE_SHADES = { { 164, 155, 139 }, { 124, 115, 101 },
+                      { 82, 75, 65 }, { 43, 39, 34 } }
+
 -- the ramp as the display mode has it, which is the only form anything here
 -- should be reading it in
 local function skyRamp()
@@ -135,6 +145,34 @@ function VoxelScene.skyColor(map, t)
   return sky
 end
 
+local function indoorBackdrop(map)
+  if not (map and map.def and not Map.isOutdoor(map.def)) then return nil end
+  local tileset = tostring(map.def.tileset or ""):upper()
+  local cave = tileset == "CAVERN" or tileset == "CAVE"
+  local source = cave and CAVE_SHADES or ROOM_SHADES
+  local shades = PaletteFX.effectiveColors(source) or source
+  local bands = {}
+  -- Sky.paint expects the darkest band first and the lightest at the bottom.
+  for i = #shades, 1, -1 do
+    local c = shades[i]
+    bands[#bands + 1] = { c[1] / 255, c[2] / 255, c[3] / 255 }
+  end
+  local haze = bands[#bands]
+  return {
+    haze[1], haze[2], haze[3], 1,
+    bands = bands,
+    -- A room envelope fills the full void; the actual map geometry still
+    -- occludes it normally through the scene depth buffer.
+    regionSpan = 1,
+    textureAmt = cave and 0.42 or 0.14,
+    textureScale = cave and 6 or 12,
+    textureMode = cave and 1 or 0,
+    dither = false,
+  }
+end
+
+VoxelScene.indoorBackdrop = indoorBackdrop
+
 -- The free-roam sky: the flat one above, dressed with the banded gradient
 -- (lib/Sky.lua).
 --
@@ -145,6 +183,8 @@ end
 -- flat fill it has always had -- there is no gradient to see from down there,
 -- and the arena's look is not this rung's to change.
 local function skyFor(map)
+  local indoor = indoorBackdrop(map)
+  if indoor then return indoor end
   local sky = VoxelScene.skyColor(map, skyStrength(Voxel.angle))
   if not sky then return nil end
   return Sky.dress(sky)

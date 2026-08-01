@@ -756,7 +756,7 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   -- and where the sky's bottom edge lands, which is what the reflection
   -- reads its bands against (see Water). nil when nothing painted bands.
   Voxel3D.skyEdge = (sky and sky.bands)
-                    and Sky.region(h, Voxel3D.horizonY(h)) or nil
+                    and Sky.region(h, Voxel3D.horizonY(h), sky.regionSpan) or nil
   if sky then
     love.graphics.clear(sky[1], sky[2], sky[3], sky[4] or 1, true, true)
     -- The sky goes down here, in the one window in this function where a

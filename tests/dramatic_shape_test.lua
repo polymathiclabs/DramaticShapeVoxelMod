@@ -1264,13 +1264,25 @@ for level = 0, Voxel.MAX_LEVEL do
   end
 end
 
--- indoors, never -- at any rung, including the top one
+-- Indoors use a distant, opaque room envelope at every rung. It is not a
+-- collision mesh: the clear/paint pass only fills the far void, while the
+-- ordinary depth buffer still handles the actual room geometry.
+local cave = { def = { id = "CERULEAN_CAVE_1F", tileset = "CAVERN" } }
+local roomBackdrop = VoxelScene.indoorBackdrop(inside)
+local caveBackdrop = VoxelScene.indoorBackdrop(cave)
+T.check(roomBackdrop and roomBackdrop.bands and roomBackdrop.regionSpan == 1,
+  "a house gets a full-frame room envelope")
+T.eq(roomBackdrop.textureMode, 0, "houses use the plaster texture treatment")
+T.eq(caveBackdrop.textureMode, 1, "caves use the rock texture treatment")
 for level = 0, Voxel.MAX_LEVEL do
   Voxel.angle = math.rad(Voxel.ANGLES_DEG[level + 1])
-  T.eq(skyFor(inside), nil, "an interior has no sky at rung " .. level)
+  local sky = skyFor(inside)
+  T.check(sky ~= nil and sky.regionSpan == 1,
+    "an interior has an opaque room envelope at rung " .. level)
 end
 Voxel.angle = TOP
-T.eq(skyFor(inside), nil, "not even at 75 degrees, where outdoors would")
+T.check(skyFor(inside) ~= nil,
+  "the room envelope remains present at 75 degrees")
 
 -- a map record with nothing to ask is not a crash
 T.eq(skyFor(nil), nil, "no map, no sky")
@@ -1445,6 +1457,8 @@ T.check(math.abs(Sky.region(288, 66.83) - 66.83) < 1e-9,
 T.eq(Sky.region(288, -930), 288 * Sky.SPAN,
   "a horizon above the frame falls back to a fixed slice of it")
 T.eq(Sky.region(288, nil), 288 * Sky.SPAN, "and so does no horizon at all")
+T.eq(Sky.region(288, nil, 1), 288,
+  "a room envelope can explicitly fill the whole canvas")
 T.eq(Sky.region(288, 4000), 288, "a horizon below the frame fills it")
 T.eq(Sky.region(0, 40), nil, "and a canvas with no height paints nothing")
 T.check(Sky.SPAN > 0.1 and Sky.SPAN < 0.5,
