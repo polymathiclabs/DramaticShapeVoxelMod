@@ -66,8 +66,10 @@ off rather than merely hidden — a row that is not there cannot switch off a
 value an older save arrived with. Uninstall and both come back, at whatever
 they were last set to.
 
-Everything the battle screen draws as a box — the two HUD blocks, the text
-box and the menus over it — sits on frosted glass rather than on the white
-field it used to have behind it: the world underneath, blurred and laid back
-down translucent, with the ink flipping white where the ground it lands on is
-dark. Nothing the engine draws inside a box moves; only the paper is gone.
+The two battle HUD blocks sit on frosted glass rather than on the white field
+they used to have behind them: the world underneath, blurred and laid back
+down translucent, with the ink flipping white where the ground is dark. The
+battle text box and menus keep the engine's ordinary white dialogue paper and
+border, so they match open-world conversations when they appear as the small
+floating VR panel. The status windows are reduced and follow their Pokémon;
+the engine still supplies every name, level, HP bar, and menu glyph.

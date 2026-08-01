@@ -2339,54 +2339,67 @@ T.check(range > 0, "with a ramp out of it, so the band edge has no seam")
 local wide = select(2, BattleDOF.bandFor(120, 30, 144))
 T.check(wide > band, "marks further apart hold a deeper slab in focus")
 
--- ------- the HUDs are snapped to the window's own edges
+-- ------- the HUDs float above the Pokemon that own them
 --
--- The battle screen is 160x144 in the middle of the window and the world is the
--- whole of it, which left both HUD blocks huddled in the middle of the frame
--- with map on either side of them. Each is snapped to its own side instead: the
--- foe's to the left edge, the player's to the right. Measured in world-canvas
--- pixels, because that is the surface they are composited into -- the GB canvas
--- they are drawn in cannot reach past its own 160 columns.
+-- The battle screen is 160x144 in the middle of the frame and the world is the
+-- whole of it. The status windows now use the projected feet marks as their
+-- anchors and are reduced before being composited into the world canvas.
 do
-local hudShot = { lx = 100, ly = 12, scale = 3, pw = 1000, ph = 500 }
-local hudRects, bandX = Battles.snapRects(hudShot)
+local hudShot = {
+  lx = 100, ly = 12, scale = 3, pw = 1000, ph = 500,
+  enemy = { 120, 56 }, player = { 40, 96 },
+}
+local hudRects, bands = Battles.snapRects(hudShot)
 local hudRect = Battles.HUD_RECT
+local hudScale = Battles.HUD_SCALE
 
-T.eq(hudRects.enemy[1], 0, "the foe's panel starts at the window's left edge")
-T.eq(hudRects.player[1] + hudRects.player[3], hudShot.pw,
-  "and the player's ends at the right one")
-T.check(hudRects.enemy[1] < hudShot.lx,
-  "so the foe's block has left the letterbox it used to sit in")
-T.check(hudRects.player[1] > hudShot.lx + hudRect.player[1] * hudShot.scale,
-  "and the player's has gone the other way")
+local function near(a, b, label)
+  T.check(math.abs(a - b) < 1e-9, label)
+end
 
--- the vertical is untouched: both blocks stay on the rows the GB put them on
-T.eq(hudRects.enemy[2], hudShot.ly + hudRect.enemy[2] * hudShot.scale,
-  "the foe's block keeps its own rows")
-T.eq(hudRects.player[2], hudShot.ly + hudRect.player[2] * hudShot.scale,
-  "and so does the player's")
+near(hudRects.enemy[1] + hudRects.enemy[3] / 2,
+     hudShot.lx + hudShot.enemy[1] * hudShot.scale,
+     "the foe's panel is centred on its projected feet")
+near(hudRects.player[1] + hudRects.player[3] / 2,
+     hudShot.lx + hudShot.player[1] * hudShot.scale,
+     "the player's panel is centred on its projected feet")
+T.check(hudRects.enemy[2] < hudShot.ly + hudShot.enemy[2] * hudShot.scale,
+  "the foe's panel floats above its Pokemon")
+T.check(hudRects.player[2] < hudShot.ly + hudShot.player[2] * hudShot.scale,
+  "the player's panel floats above its Pokemon")
+near(hudShot.ly + hudShot.player[2] * hudShot.scale
+       - (hudRects.player[2] + hudRects.player[4]),
+     (Battles.HUD_GAP + Battles.HUD_LIFT) * hudShot.scale,
+     "the player's panel clears the Pokemon silhouette")
 
--- and their size: a block is the same GB tiles at the same scale as the rest of
--- the art, moved and not stretched
-T.eq(hudRects.enemy[3], hudRect.enemy[3] * hudShot.scale,
-  "a block is its own width at the frame's scale")
-T.eq(hudRects.player[4], hudRect.player[4] * hudShot.scale,
-  "and its own height")
+near(hudRects.enemy[3], hudRect.enemy[3] * hudShot.scale * hudScale,
+     "the foe's status window is reduced in the world")
+near(hudRects.player[4], hudRect.player[4] * hudShot.scale * hudScale,
+     "the player's status window keeps the same reduced scale")
 
--- the band each block is cut out of is placed so the block lands on the rect
--- above; that is what the panel and the glyphs agreeing depends on
-T.eq(bandX.enemy + hudRect.enemy[1] * hudShot.scale, hudRects.enemy[1],
-  "the foe's band is offset so its block lands on its panel")
-T.eq(bandX.player + hudRect.player[1] * hudShot.scale, hudRects.player[1],
-  "and the player's likewise")
+-- The intro/faint bands follow the same character-relative placement, while
+-- retaining their full-width source rows so pokeballs are not dropped.
+near(bands.enemy[1] + bands.enemy[3] / 2,
+     hudShot.lx + hudShot.enemy[1] * hudShot.scale,
+     "the foe's intro band follows its character")
+near(bands.player[1] + bands.player[3] / 2,
+     hudShot.lx + hudShot.player[1] * hudShot.scale,
+     "the player's intro band follows its character")
 
--- a window the shape of the GB screen has nowhere to snap TO, and the player's
--- block already ends at column 160, so it must not move at all
-local snug = { lx = 0, ly = 0, scale = 4, pw = 160 * 4, ph = 144 * 4 }
+-- A character near an edge is clamped into the canvas rather than losing its
+-- status window outside the headset view.
+local snug = {
+  lx = 0, ly = 0, scale = 4, pw = 160 * 4, ph = 144 * 4,
+  enemy = { 2, 2 }, player = { 158, 142 },
+}
 local snugRects = Battles.snapRects(snug)
-T.eq(snugRects.player[1], hudRect.player[1] * snug.scale,
-  "on a GB-shaped window the player's block stays exactly where it was")
-T.eq(snugRects.enemy[1], 0, "and the foe's is flush with a left edge it already met")
+T.check(snugRects.player[1] >= Battles.HUD_MARGIN * snug.scale,
+  "the player's edge-clamped panel stays inside the world")
+T.check(snugRects.player[1] + snugRects.player[3]
+        <= snug.pw - Battles.HUD_MARGIN * snug.scale,
+  "the player's panel does not clip past the far edge")
+T.check(snugRects.enemy[1] >= Battles.HUD_MARGIN * snug.scale,
+  "the foe's edge-clamped panel stays inside the world")
 
 -- the bands together cover every row drawHUDs draws into (0-96: the two HUDs,
 -- the pokeball rows and the safari ball count) and never overlap, so nothing it
@@ -2401,14 +2414,11 @@ T.eq(e[1], 0, "the bands are full width")
 T.eq(e[3], 160, "so a shaken HUD or a long name is carried out with its block")
 end
 
--- ------- and the box at the bottom is on the same glass
+-- ------- and the battle bar keeps the open-world dialogue geometry
 --
--- The HUDs got frosted panels because black glyphs on grass are not readable.
--- The text box had the opposite problem and the same cause: an opaque white
--- slab over the bottom third of the diorama, which was the field's own colour
--- back when the field was white. The rects here are what the glass is cut to,
--- and they are a READ-ONLY mirror of drawTextArea's own branches -- so this is
--- where a future engine that moves a box says so.
+-- The engine's battle text area uses Font.drawBox just like the open-world
+-- TextBox. Keep this mirror of its geometry so future layout changes cannot
+-- make the staged fight drift away from that shared dialogue window.
 do
 local rects = Battles.textRects({ phase = "messages" })
 T.check(rects.box ~= nil, "there is always a box: drawTextArea opens with one")
@@ -2427,7 +2437,7 @@ T.eq(Battles.textRects({ phase = "menu" }).moves, nil,
 for _, phase in ipairs({ "moveSelect", "mimicSelect" }) do
   local more = Battles.textRects({ phase = phase })
   local extra = more.moves or more.mimic
-  T.check(extra ~= nil, phase .. " raises a box of its own, and it is frosted")
+  T.check(extra ~= nil, phase .. " raises a box of its own")
   T.eq(extra[2] + extra[4], more.box[2],
     "which stops exactly where the box below it starts, so they never overlap")
   T.check(extra[1] >= 0 and extra[1] + extra[3] <= 160 and extra[2] >= 0,
