@@ -52,7 +52,7 @@ menu.
 | `7`, or the **V-CURVE** options row | OFF → 1 → 2 → 3 — bend the world over the horizon |
 | `8`, or the **3D-BTL** options row | ON / OFF — fight on the map instead of on a white field |
 | `9`, or the **WATER** options row | FULL / SKY / OFF — waves and reflections on water. **SKY** gives the surface its pixel-tall wave columns and puts the sky, the sun, the moon and the cast in them; **FULL** adds a screen-space ray march that also reflects the shoreline, the trees and the buildings standing behind it |
-| VR controller | Left or right thumbstick moves; `A` / `B` select the normal Game Boy buttons; the left menu button opens START; thumbstick click is SELECT. In POV, the stick's forward direction follows the trainer's facing and left/right turns in place |
+| VR controller | Left or right thumbstick moves; right `A` / `B` select the normal Game Boy buttons; left `X` opens START and left `Y` is SELECT. In POV, the stick's forward direction follows the trainer's facing and left/right turns in place |
 | the **BACK SPRITES** options row | OFF / ON — keep your own Pokémon on the battle menu, seen from behind in its classic slot, instead of standing it on the map; the foe is still out there. Only on the menu while **3D-BTL** is on, because it decides nothing without it |
 | the **DAYTIME** options row | SYNC / DAY / NIGHT / DUSK / DAWN / CYCLE — what time it is outdoors, on the diorama *and* on the flat 2D world; held at SYNC (and off the menu) while VOXEL is FULL |
 
