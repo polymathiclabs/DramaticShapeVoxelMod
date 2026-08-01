@@ -537,6 +537,12 @@ function BattleScene.render(state, arena, textures, token)
       -- pic pinned to the menu (see OverworldBattle.backPinned). Neutral
       -- indoors, which is what DayNight.tint answers for a room.
       tint = Voxel3D.tint,
+      -- HUD placement needs to know whether these marks came from the normal
+      -- staged composition or the closer first-person battle rig. The latter
+      -- puts the same Pokemon farther from the eye, so its compact status
+      -- window must scale and lift from the POV projection rather than reuse
+      -- the over-the-shoulder spacing.
+      pov = cam.mode == "pov",
     }
   end)
   -- the placed camera is ours for exactly this pass; anything else that
