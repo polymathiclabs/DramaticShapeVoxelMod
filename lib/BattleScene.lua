@@ -41,6 +41,7 @@ local VoxelScene = V.require("VoxelScene")
 local BattleCam = V.require("BattleCam")
 local BattleBillboard = V.require("BattleBillboard")
 local VoxelGrid = V.require("VoxelGrid")
+local CameraMode = V.require("CameraMode")
 local DayNight = V.require("DayNight")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
@@ -486,7 +487,8 @@ function BattleScene.render(state, arena, textures, token)
     -- gives them, measured against THIS camera's pitch rather than the
     -- orbit's -- there is no character here for them to overdraw, but the
     -- pull is also what keeps a tuft from z-fighting the floor it stands on
-    local pull = VoxelScene.pull(math.max(pitch, 0.05))
+    local pull = CameraMode.isPOV() and 0
+      or VoxelScene.pull(math.max(pitch, 0.05))
     Voxel3D.draw(ChunkMesher.grass(host), atlasFor(host), nil, pull)
     for _, nb in ipairs(neighbors) do
       Voxel3D.draw(ChunkMesher.grass(nb.map), atlasFor(nb.map),

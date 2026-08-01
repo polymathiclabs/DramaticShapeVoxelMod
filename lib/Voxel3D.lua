@@ -529,9 +529,12 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
         local baseUp = cross3(baseRight, baseForward)
         local forward = normalize3(quaternionRotate(delta, baseForward),
                                    baseForward)
-        local right = normalize3(quaternionRotate(delta, baseRight),
-                                 baseRight)
-        up = normalize3(quaternionRotate(delta, baseUp), baseUp)
+        -- Use the tracked forward direction, then rebuild the horizontal
+        -- basis against world-up. This keeps pitch and yaw equivalent while
+        -- deliberately removing headset roll, which otherwise rotates the
+        -- entire voxel image when the player tilts their head.
+        local right = normalize3(cross3(forward, { 0, 1, 0 }), baseRight)
+        up = normalize3(cross3(right, forward), baseUp)
         local distance = math.sqrt(
           (baseFocus[1] - baseEye[1]) ^ 2
           + (baseFocus[2] - baseEye[2]) ^ 2
@@ -539,8 +542,6 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
         focus = { eye[1] + forward[1] * distance,
                   eye[2] + forward[2] * distance,
                   eye[3] + forward[3] * distance }
-        -- Keep the basis orthogonal after a long sequence of headset updates.
-        up = normalize3(cross3(right, forward), up)
       end
       Voxel3D.eye = eye
       -- kept beside the eye for horizonY: where the sky's pale end goes is a
