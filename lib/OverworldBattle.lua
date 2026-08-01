@@ -216,26 +216,31 @@ OverworldBattle.HUD_RECT = {
   player = { 72, 56, 88, 40 },
 }
 
--- ------- the box at the bottom, on the same glass
+-- In the world the cards are characters, not the edges of a Game Boy screen.
+-- Keep each status window readable, but let it float above the character that
+-- owns it. The source remains pixel-art sized; only the world placement is
+-- reduced, so the HP bars are not resampled into the same visual weight as a
+-- full battle screen.
+OverworldBattle.HUD_SCALE = 0.64
+OverworldBattle.HUD_GAP = 5
+-- The projection mark is at the feet. Lift past the front-pic silhouette so
+-- the compact card hovers above the head instead of covering the Pokemon.
+OverworldBattle.HUD_LIFT = 30
+OverworldBattle.HUD_MARGIN = 6
+
+-- ------- the box at the bottom, matching the open-world dialogue
 --
--- The HUDs got frosted panels because black glyphs on grass are not readable.
--- The battle's text box and its menu had the opposite problem and the same
--- cause: they are drawn as an OPAQUE WHITE slab with a black border, which was
--- the field's own colour when the field was white and is a sheet of paper laid
--- over the bottom third of the diorama now that it is not.
---
--- So the box gets exactly what the HUDs get: the world behind it, blurred to
--- frosted glass and laid back down translucent, with the border and the text
--- drawn over it unchanged, and the same brightness verdict flipping the ink
--- when the ground under it is dark. Only the FILL is taken away -- every glyph
--- the engine draws inside the box is still the engine's own, in its own place.
+-- The HUDs get frosted panels because black glyphs on grass are not readable.
+-- The battle's text box and menu deliberately do not: they use the engine's
+-- OPAQUE WHITE slab and black border, the same Font.drawBox path as the
+-- open-world TextBox. This keeps the battle bar visually familiar while the
+-- VR compositor makes the whole classic UI canvas a small floating panel.
 --
 -- These are the boxes BattleState:drawTextArea lays down, as GB-frame rects.
 -- READ-ONLY duplicates of that function's own branches, the same kind of
 -- mirror hudLive is and for the same reason: there is no seam that reports "a
--- move menu is up", and glass has to go down BEFORE the box that sits on it.
--- The worst a future engine change can do is frost a rectangle nothing lands
--- on, or leave a box unfrosted -- never break a battle.
+-- move menu is up". The rects remain useful for the fallback backdrop and
+-- brightness probe; the opaque battle box drawn afterward covers them.
 --
 -- Each rect stops where the next one starts rather than overlapping it: two
 -- panels over the same pixels would frost it twice and leave a visible step
@@ -261,18 +266,17 @@ function OverworldBattle.textRects(battle)
   return out
 end
 
--- ------- the HUDs, out at the window's own edges
+-- ------- the HUDs, floating above their Pokemon
 --
 -- The battle screen is 160x144 in the MIDDLE of the window and the world is the
--- whole of it. That left both HUD blocks huddled together in the middle of the
--- frame with map showing on either side of them, which reads as a Game Boy
--- screenshot pasted over a diorama rather than as the diorama's own furniture.
+-- whole of it. The status blocks follow the projected feet marks of the two
+-- Pokemon instead of being pinned to the screen edges, which makes each
+-- name/level/HP bar read as part of that character's space.
 --
--- So each block is snapped to its own side: the foe's to the left edge of the
--- window, the player's to the right. Nothing about either block changes -- same
--- tiles, same size, same rows, drawn by the engine's own DrawEnemyHUDAndHPBar
--- and DrawPlayerHUDAndHPBar -- only where the pair sits. On a window the shape
--- of the GB screen there is nowhere to go and the snap is a no-op.
+-- The content is still drawn by the engine's own DrawEnemyHUDAndHPBar and
+-- DrawPlayerHUDAndHPBar. Only its source crop, world scale and projected
+-- placement change; on a normal 2D window there is no staged shot, so the
+-- engine's original HUD remains untouched.
 --
 -- They cannot simply be MOVED there: the engine draws them into the 160x144 UI
 -- canvas and everything outside it is clipped away. So the layer is rendered to
@@ -289,24 +293,50 @@ OverworldBattle.HUD_BAND = {
   player = { 0, 48, 160, 48 },
 }
 
--- Where each block lands, in WORLD-canvas pixels: the panel rect the frosted
--- glass is cut to, plus the x its band is blitted at.
---
--- The foe's panel starts at the window's left edge and the player's ends at the
--- right one. The vertical is untouched, so both stay on the rows the GB put
--- them on. A band's own origin sits outside the window by the panel's inset --
--- the couple of pixels a HUD shake can push past the edge are clipped there,
--- which is the whole cost of the snap and is invisible.
-function OverworldBattle.snapRects(shot)
+-- Where each block lands, in WORLD-canvas pixels. The panel rect is centred
+-- above the projected feet mark, then clamped to a small world margin so a
+-- character near a screen edge cannot take its status window with it.
+local function clamp(value, low, high)
+  if high < low then return low end
+  return math.max(low, math.min(high, value))
+end
+
+-- Put a source rect above the projected feet mark of its Pokemon. Keeping the
+-- calculation in GB/world coordinates is important: `shot.enemy` and
+-- `shot.player` are the same marks used to pin the billboard and therefore
+-- follow the camera drift instead of staying at the battle's starting point.
+local function projectedHudRect(side, source, shot, scale)
+  local mark = shot[side]
+  if not (mark and mark[1] and mark[2]) then return nil end
   local s = shot.scale
-  local e, p = OverworldBattle.HUD_RECT.enemy, OverworldBattle.HUD_RECT.player
-  local ex = -e[1] * s                       -- foe: panel's left edge to 0
-  local px = shot.pw - (p[1] + p[3]) * s     -- player: right edge to the far side
+  local w, h = source[3] * s * scale, source[4] * s * scale
+  local gap = (OverworldBattle.HUD_GAP + OverworldBattle.HUD_LIFT) * s
+  local margin = OverworldBattle.HUD_MARGIN * s
+  local mx = shot.lx + mark[1] * s
+  local my = shot.ly + mark[2] * s
+  local x = mx - w / 2
+  local y = my - h - gap
+  x = clamp(x, margin, shot.pw - w - margin)
+  y = clamp(y, margin, shot.ph - h - margin)
+  return { x, y, w, h }
+end
+
+function OverworldBattle.snapRects(shot)
+  local scale = OverworldBattle.HUD_SCALE
   local rects = {
-    enemy = { ex + e[1] * s, shot.ly + e[2] * s, e[3] * s, e[4] * s },
-    player = { px + p[1] * s, shot.ly + p[2] * s, p[3] * s, p[4] * s },
+    enemy = projectedHudRect("enemy", OverworldBattle.HUD_RECT.enemy,
+                             shot, scale),
+    player = projectedHudRect("player", OverworldBattle.HUD_RECT.player,
+                              shot, scale),
   }
-  return rects, { enemy = ex, player = px }
+  -- During the intro/faint phases the source band can contain pokeballs even
+  -- when the status block is not live yet. Give that band the same compact,
+  -- character-relative placement instead of reviving the old screen-edge HUD.
+  local bands = {}
+  for side, source in pairs(OverworldBattle.HUD_BAND) do
+    bands[side] = projectedHudRect(side, source, shot, scale)
+  end
+  return rects, bands
 end
 
 -- A rect measured in the GB frame, in WORLD-canvas pixels: where the letterbox
@@ -726,37 +756,6 @@ local function withoutBackgroundFill(battle, fn)
   if not ok then error(err, 0) end
 end
 
--- ------- the box, without its paper
---
--- Font.drawBox is a white fill and then six border glyphs, and the fill is the
--- opaque slab the frosted panel underneath is there to replace. So for the
--- length of one drawTextArea the white fills are dropped and everything else
--- -- the border, the text, the cursor, the down arrow -- draws exactly as it
--- always did, over the glass instead of over paper.
---
--- Every fill drawTextArea issues is one of those: the box's own, and the two
--- eight-pixel cells MoveSelectionMenu wipes back to box white before it writes
--- the border glyphs that hardware would have overwritten. Both are opaque
--- white, both are paper, and both go.
---
--- The same shim shape as withoutBackgroundFill above, and scoped as tightly:
--- installed around a single call, removed on the way out including on error,
--- never live outside a battle frame this mode is drawing.
-local function withoutBoxFill(battle, fn)
-  local g = love.graphics
-  local rectangle = g.rectangle
-  g.rectangle = function(mode, ...)
-    if mode == "fill" then
-      local r, gr, b, a = g.getColor()
-      if r > 0.99 and gr > 0.99 and b > 0.99 and a > 0.99 then return end
-    end
-    return rectangle(mode, ...)
-  end
-  local ok, err = pcall(fn, battle)
-  g.rectangle = rectangle
-  if not ok then error(err, 0) end
-end
-
 -- ------- the hour's light, on a pic that is not geometry
 --
 -- Everything standing in the arena goes through the voxel shader, and that
@@ -1091,18 +1090,15 @@ function OverworldBattle.install()
     end
   end
 
-  -- The battle's text box and its menus, over the frosted glass laid down for
-  -- them rather than over their own white paper -- and their ink flipped with
-  -- the HUD's when the ground under the frame is dark, by the same rule and
-  -- off the same verdict.
+  -- The battle's text box and its menus use the engine's ordinary paper and
+  -- border, exactly like the open-world TextBox. The renderer later places
+  -- that same 160x144 UI canvas as the small floating VR panel. The staged
+  -- world still supplies the backdrop, but the battle bar must not become a
+  -- different frosted control surface from the dialogue window.
   local innerText = BattleState.drawTextArea
   function BattleState:drawTextArea()
     if not self.dramaticShapeShot then return innerText(self) end
-    local battle = self
-    if not self.dramaticShapeDark then return withoutBoxFill(battle, innerText) end
-    BattleHud.flipGlyphs(BattleScene.GB_W, BattleScene.GB_H, function()
-      withoutBoxFill(battle, innerText)
-    end)
+    return innerText(self)
   end
 
   -- Move animations are authored against the pics' fixed slots, and a single
@@ -1288,16 +1284,16 @@ function OverworldBattle.hudTexture(battle, slide, dark)
   return ok and layer or nil
 end
 
--- Draw both HUD blocks into the world image at the window's edges, each on its
--- own frosted panel. Returns true when the frame's HUDs are up there and the
--- in-frame draw must be skipped; false leaves the battle screen's own HUD
--- exactly as it was before any of this existed.
+-- Draw both HUD blocks into the world image above the Pokemon that own them,
+-- each on its own frosted panel. Returns true when the frame's HUDs are in the
+-- world and the in-frame draw must be skipped; false leaves the battle
+-- screen's own HUD exactly as it was before any of this existed.
 --
 -- Both bands are blitted whether or not that side's HUD is LIVE, because a band
 -- carries more than the HUD: the pokeball rows of the intro and of an enemy
--- faint, and the safari ball count, all draw in these rows and belong at the
--- same edge as the block they share it with. The panels are the ones that
--- follow hudLive -- frosted glass under nothing is a slab floating in the arena.
+-- faint, and the safari ball count, all draw in these rows and belong with the
+-- Pokemon they describe. Live status windows use the tighter HUD_RECT crop;
+-- non-live phases use the compact band fallback.
 function OverworldBattle.snapHUDs(battle, shot)
   if not (battle and shot and shot.canvas and (shot.scale or 0) > 0) then
     return false
@@ -1310,7 +1306,7 @@ function OverworldBattle.snapHUDs(battle, shot)
   local okV, vr = pcall(V.require, "VR")
   if okV and vr and vr.active and vr.active() then return false end
   local slide = (battle.introSlide or 0) * 4
-  local rects, bandX = OverworldBattle.snapRects(shot)
+  local rects, bands = OverworldBattle.snapRects(shot)
   local enemy, player = OverworldBattle.hudLive(battle, slide)
   local live = {}
   if enemy then live.enemy = rects.enemy end
@@ -1342,10 +1338,16 @@ function OverworldBattle.snapHUDs(battle, shot)
     for _, rect in pairs(live) do BattleHud.panel(rect, shot, dark, true) end
     g.setColor(1, 1, 1, 1)
     for side, band in pairs(OverworldBattle.HUD_BAND) do
-      local quad = g.newQuad(band[1], band[2], band[3], band[4],
-                             BattleScene.GB_W, BattleScene.GB_H)
-      g.draw(layer, quad, bandX[side] + band[1] * shot.scale,
-             shot.ly + band[2] * shot.scale, 0, shot.scale, shot.scale)
+      local liveSide = (side == "enemy" and enemy)
+                       or (side == "player" and player)
+      local source = liveSide and OverworldBattle.HUD_RECT[side] or band
+      local target = liveSide and rects[side] or bands[side]
+      if source and target then
+        local quad = g.newQuad(source[1], source[2], source[3], source[4],
+                               BattleScene.GB_W, BattleScene.GB_H)
+        g.draw(layer, quad, target[1], target[2], 0,
+               target[3] / source[3], target[4] / source[4])
+      end
     end
   end)
   if prevCanvas then g.setCanvas(prevCanvas) else g.setCanvas() end
