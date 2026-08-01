@@ -2512,6 +2512,25 @@ near(hudRects.enemy[3], hudRect.enemy[3] * hudShot.scale * hudScale,
 near(hudRects.player[4], hudRect.player[4] * hudShot.scale * hudScale,
      "the player's status window keeps the same reduced scale")
 
+-- POV is a separate battle camera, so it gets its own compact scale and a
+-- short lift. This keeps the card near a distant first-person Pokemon rather
+-- than reusing the larger over-the-shoulder spacing.
+local povShot = {
+  lx = hudShot.lx, ly = hudShot.ly, scale = hudShot.scale,
+  pw = hudShot.pw, ph = hudShot.ph, pov = true,
+  enemy = hudShot.enemy, player = hudShot.player,
+}
+local povRects = Battles.snapRects(povShot)
+near(povRects.enemy[3], hudRect.enemy[3] * povShot.scale
+       * Battles.HUD_SCALE_POV,
+     "POV reduces the foe's status window for the closer camera")
+T.check(povRects.enemy[3] < hudRects.enemy[3],
+  "POV status windows are smaller than the composed battle windows")
+near(povShot.ly + povShot.enemy[2] * povShot.scale
+       - (povRects.enemy[2] + povRects.enemy[4]),
+     (Battles.HUD_GAP + Battles.HUD_LIFT_POV) * povShot.scale,
+     "POV keeps the foe's status window close to its silhouette")
+
 -- The intro/faint bands follow the same character-relative placement, while
 -- retaining their full-width source rows so pokeballs are not dropped.
 near(bands.enemy[1] + bands.enemy[3] / 2,

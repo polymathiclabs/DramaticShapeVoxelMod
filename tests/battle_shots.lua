@@ -20,6 +20,7 @@ return function(game)
   local BattleState = require("src.battle.BattleState")
 
   local SEED = tonumber(os.getenv("SHOT_SEED") or "") or 20260727
+  local LIMIT = tonumber(os.getenv("BATTLE_LIMIT") or "") or 8
   love.math.setRandomSeed(SEED)
 
   -- Somebody to fight with. Two very different back pics, so a pin that is
@@ -82,7 +83,7 @@ return function(game)
                    arena.playerCell[1], arena.playerCell[2])
   end
 
-  for i = 1, 8 do
+  for i = 1, math.min(8, math.max(1, LIMIT)) do
     -- the TRAINERS are the random part; the places are walked in order, so
     -- one run covers open route, town, forest, cave and gym floor rather
     -- than landing on the same meadow eight times
