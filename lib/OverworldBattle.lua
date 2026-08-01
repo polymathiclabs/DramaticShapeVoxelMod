@@ -1114,23 +1114,66 @@ function OverworldBattle.install()
   function BattleState:drawAnimLayer(colorized)
     local shot = self.dramaticShapeShot
     if not shot then return innerAnim(self, colorized) end
-    -- Move animations are authored against the pics' old fixed slots, and one
-    -- animation reaches across both sides, so there is no per-side offset to
-    -- give them. They ride to where the PAIR went: the midpoint of the two
-    -- mons' projected positions, less the midpoint of the slots they used to
-    -- sit in. A hit still lands on the mon it is aimed at.
     local a = OverworldBattle.ANCHOR
     -- BACK SPRITES leaves the player's mon exactly where the GB put it, so that side
     -- contributes no movement at all and the pair's centre has gone half as
     -- far as the foe's mark did.
     local px, py = shot.player[1], shot.player[2]
     if OverworldBattle.backPinned() then px, py = a.player[1], a.player[2] end
-    local dx = (shot.enemy[1] + px) / 2 - (a.enemy[1] + a.player[1]) / 2
-    local dy = (shot.enemy[2] + py) / 2 - (a.enemy[2] + a.player[2]) / 2
-    love.graphics.push()
-    love.graphics.translate(math.floor(dx + 0.5), math.floor(dy + 0.5))
-    local ok, err = pcall(innerAnim, self, colorized)
-    love.graphics.pop()
+    local baseDX = a.enemy[1] - a.player[1]
+    local baseDY = a.enemy[2] - a.player[2]
+    local targetDX = shot.enemy[1] - px
+    local targetDY = shot.enemy[2] - py
+    local sx = math.abs(baseDX) > 1e-4 and targetDX / baseDX or nil
+    local sy = math.abs(baseDY) > 1e-4 and targetDY / baseDY or nil
+    local mapped = sx and sy and math.abs(sx) > 1e-4 and math.abs(sy) > 1e-4
+                   and sx == sx and sy == sy
+                   and math.abs(sx) < 20 and math.abs(sy) < 20
+    local g = love.graphics
+    local previousCanvas = g.getCanvas()
+    local previousBlend, previousAlpha = g.getBlendMode()
+    local previousShader = g.getShader and g.getShader() or nil
+    local csx, csy, csw, csh = g.getScissor()
+    local ok, err = pcall(function()
+      -- Attack sprites belong to the staged fight, not to the small floating
+      -- command panel. Draw them directly into the full-size battle shot so
+      -- their projected coordinates remain on top of the world Pokemon.
+      if not OverworldBattle.backPinned() and shot.canvas then
+        g.setCanvas(shot.canvas)
+        g.setShader()
+        g.setBlendMode("alpha")
+        g.setScissor()
+        g.setColor(1, 1, 1, 1)
+        g.push()
+        g.translate(shot.lx, shot.ly)
+        g.scale(shot.scale, shot.scale)
+        if mapped then
+          g.translate(px - sx * a.player[1],
+                      py - sy * a.player[2])
+          g.scale(sx, sy)
+        else
+          -- If a staged pin is temporarily unavailable, retain a safe
+          -- translation rather than dropping the engine's animation layer.
+          local dx = (shot.enemy[1] + px) / 2
+                      - (a.enemy[1] + a.player[1]) / 2
+          local dy = (shot.enemy[2] + py) / 2
+                      - (a.enemy[2] + a.player[2]) / 2
+          g.translate(math.floor(dx + 0.5), math.floor(dy + 0.5))
+        end
+        innerAnim(self, colorized)
+        g.pop()
+      else
+        -- BACK SPRITES keeps the player Pokemon in the classic frame, so
+        -- retain the engine layer there rather than drawing over empty map
+        -- ground. It will be scaled with the rest of that compact panel.
+        innerAnim(self, colorized)
+      end
+    end)
+    if previousCanvas then g.setCanvas(previousCanvas) else g.setCanvas() end
+    g.setBlendMode(previousBlend or "alpha", previousAlpha)
+    if g.setShader then g.setShader(previousShader) end
+    if csx then g.setScissor(csx, csy, csw, csh) else g.setScissor() end
+    g.setColor(1, 1, 1, 1)
     if not ok then error(err, 0) end
   end
 
