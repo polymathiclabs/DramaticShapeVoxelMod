@@ -345,6 +345,28 @@ local function finishStereo()
   return true
 end
 
+-- BattleState can draw after the voxel world hook has declined to render a
+-- stereo pair. In that case the engine still has the completed battle shot,
+-- but its generic fallback would submit the whole desktop canvas and make the
+-- classic battle bar fill the headset. Prepare that mono battle shot for the
+-- engine's fallback queue using the same full-world/compact-UI composition as
+-- the normal stereo path. Returning false leaves the engine's normal menu and
+-- intro fallback untouched.
+local function finishVRFallback(target)
+  local shot = OverworldBattle.shot()
+  if not (target and shot and shot.canvas) then return false end
+
+  local copied = copyBattleShotToEye(target, shot.canvas)
+  if not copied then return false end
+
+  local Renderer = require("src.render.Renderer")
+  if not Renderer.uiComposite then return false end
+  Renderer.uiComposite.vrScale = 0.20
+  Renderer.uiComposite.vrPlacement = "battle"
+  local ok, done = pcall(Renderer.compositeUi, Renderer, target)
+  return ok and done == true
+end
+
 local voidFill = { last = nil }
 function voidFill.check()
   local TileRenderer = require("src.render.TileRenderer")
@@ -1118,3 +1140,4 @@ mod.exports.version = "1.4.0"
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V
 mod.exports.finishVR = finishStereo
+mod.exports.finishVRFallback = finishVRFallback

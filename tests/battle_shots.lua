@@ -21,7 +21,24 @@ return function(game)
 
   local SEED = tonumber(os.getenv("SHOT_SEED") or "") or 20260727
   local LIMIT = tonumber(os.getenv("BATTLE_LIMIT") or "") or 8
+  local VR_PREVIEW_SHOT = os.getenv("VR_PREVIEW_SHOT")
   love.math.setRandomSeed(SEED)
+
+  local function saveVrPreview(path)
+    if not path then return end
+    local Runtime = require("src.vr.Runtime")
+    local status = Runtime.status()
+    local preview = status.preview
+    local canvas = preview and preview.leftCanvas
+    assert(canvas, "VR preview did not retain a left eye canvas")
+    local image = canvas:newImageData()
+    local encoded = image:encode("png")
+    assert(encoded, "could not encode the VR preview eye")
+    local file = assert(io.open(path, "wb"))
+    file:write(encoded:getString())
+    file:close()
+    U.log("VR preview eye", path)
+  end
 
   -- Somebody to fight with. Two very different back pics, so a pin that is
   -- wrong for one silhouette and right for another cannot hide.
@@ -107,6 +124,7 @@ return function(game)
     for _ = 1, 14 do U.tap(game, "a"); U.wait(8) end
     U.log(label(place, class))
     U.shot(game, ("%s/%s_1_menu.png"):format(DIR, tag))
+    if i == 1 then saveVrPreview(VR_PREVIEW_SHOT) end
 
     -- FIGHT -> first move -> the animation
     U.tap(game, "a")
