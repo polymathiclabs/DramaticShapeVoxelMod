@@ -28,9 +28,14 @@ return function(game)
   game.stack:push(overlay)
   U.wait(8)
   local status = Runtime.status()
+  local native = status.native or {}
+  local nativeActions = native.actions or {}
   print("[vr-overlay] runtime enabled=", status.enabled,
         "mode=", status.mode,
-        "preview=", status.previewActive)
+        "preview=", status.previewActive,
+        "swapchain=", tostring(native.swapchainWidth) .. "x"
+          .. tostring(native.swapchainHeight),
+        "actions=", nativeActions.available == true)
   local path = ("%s/overlay.png"):format(dir)
   assert(U.shot(game, path), "VR overlay screenshot was not written")
   game.stack:pop()

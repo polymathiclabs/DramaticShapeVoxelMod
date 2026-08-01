@@ -900,7 +900,11 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   -- the GB's grass-over-feet trick -- while grass keeps losing to the
   -- buildings it genuinely stands behind (far deeper than the pull).
   local Voxel = V.require("VoxelState")
-  local pull = VoxelScene.pull(math.max(Voxel.angle, 0.05))
+  -- In POV the low camera makes the normal overhead depth bias look like the
+  -- walker is hovering above the grass. The grass already rises from the
+  -- terrain, so only the overhead camera needs the extra bias.
+  local pull = CameraMode.isPOV() and 0
+    or VoxelScene.pull(math.max(Voxel.angle, 0.05))
   Voxel3D.draw(ChunkMesher.grass(state.map), atlasFor(state.map), nil, pull)
   for _, nb in ipairs(state.neighbors or {}) do
     Voxel3D.draw(ChunkMesher.grass(nb.map), atlasFor(nb.map),
