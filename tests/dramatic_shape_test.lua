@@ -2502,10 +2502,13 @@ T.check(hudRects.enemy[2] < hudShot.ly + hudShot.enemy[2] * hudShot.scale,
   "the foe's panel floats above its Pokemon")
 T.check(hudRects.player[2] < hudShot.ly + hudShot.player[2] * hudShot.scale,
   "the player's panel floats above its Pokemon")
-near(hudShot.ly + hudShot.player[2] * hudShot.scale
-       - (hudRects.player[2] + hudRects.player[4]),
-     (Battles.HUD_GAP + Battles.HUD_LIFT) * hudShot.scale,
-     "the player's panel clears the Pokemon silhouette")
+local rawPlayerTop = hudShot.ly + hudShot.player[2] * hudShot.scale
+  - hudRects.player[4]
+  - (Battles.HUD_GAP + Battles.HUD_LIFT) * hudShot.scale
+local belowEnemyTop = hudRects.enemy[2] + hudRects.enemy[4]
+  + Battles.HUD_GAP * hudShot.scale
+near(hudRects.player[2], math.min(rawPlayerTop, belowEnemyTop),
+     "the player's panel stays above its Pokemon and below the foe's panel")
 near(hudShot.ly + hudShot.enemy[2] * hudShot.scale
        - (hudRects.enemy[2] + hudRects.enemy[4]),
      (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY) * hudShot.scale,
@@ -2534,10 +2537,13 @@ near(povShot.ly + povShot.enemy[2] * povShot.scale
        - (povRects.enemy[2] + povRects.enemy[4]),
      (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY_POV) * povShot.scale,
      "POV lifts the foe's status window farther from its silhouette")
-near(povShot.ly + povShot.player[2] * povShot.scale
-       - (povRects.player[2] + povRects.player[4]),
-     (Battles.HUD_GAP + Battles.HUD_LIFT_POV) * povShot.scale,
-     "POV lifts the player's status window above its silhouette")
+local rawPovPlayerTop = povShot.ly + povShot.player[2] * povShot.scale
+  - povRects.player[4]
+  - (Battles.HUD_GAP + Battles.HUD_LIFT_POV) * povShot.scale
+local belowPovEnemyTop = povRects.enemy[2] + povRects.enemy[4]
+  + Battles.HUD_GAP * povShot.scale
+near(povRects.player[2], math.min(rawPovPlayerTop, belowPovEnemyTop),
+     "POV keeps the player's panel above its Pokemon and below the foe")
 
 -- The intro/faint bands follow the same character-relative placement, while
 -- retaining their full-width source rows so pokeballs are not dropped.
