@@ -111,7 +111,14 @@ function ModSetting:row()
     label = self.label,
     value = function() return self_.labels[self_:read()] end,
     step = function(game, dir)
-      self_:cycle(game, dir)
+      local value = self_:cycle(game, dir)
+      -- Some settings need a small runtime side effect in addition to
+      -- persistence. Keep that optional so ordinary mod settings remain
+      -- unchanged; CAMERA uses it to re-anchor a live VR view immediately
+      -- when changed from the normal Options screen.
+      if type(self_.onChanged) == "function" then
+        pcall(self_.onChanged, game, value)
+      end
       return true
     end,
   }

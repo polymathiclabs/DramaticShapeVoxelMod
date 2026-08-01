@@ -497,6 +497,22 @@ function ShadowMap.finish(sig)
   ready = true
 end
 
+-- Restore graphics state when a scene callback throws after begin() but before
+-- finish(). The renderer's pipeline guard can then safely fall back to the
+-- next eye or to the ordinary 2D path.
+function ShadowMap.cancel()
+  if not drawing then return end
+  drawing = false
+  ready = false
+  pcall(love.graphics.setShader)
+  pcall(love.graphics.setDepthMode)
+  pcall(love.graphics.setCanvas)
+  pcall(love.graphics.setMeshCullMode, "none")
+  if prevBlend then
+    pcall(love.graphics.setBlendMode, prevBlend, prevAlphaMode)
+  end
+end
+
 -- Drop the GPU objects (window resize, hot reload).
 function ShadowMap.invalidate()
   canvas, canvasRes, blank = nil, 0, nil

@@ -309,7 +309,7 @@ local function newDepth(w, h)
   local c = nil
   for _, format in ipairs(DEPTH_FORMATS) do
     local ok, made = pcall(love.graphics.newCanvas, w, h,
-                           { format = format, readable = true })
+                           { dpiscale = 1, format = format, readable = true })
     if ok and made then c = made break end
   end
   if not c then return nil end
@@ -421,14 +421,7 @@ end
 -- ---------------------------------------------------------------- camera --
 
 -- An explicit camera, replacing the orbit below for as long as it is set:
--- { eye = {x,y,z}, focus = {x,y,z}, fov = radians, curve = k or nil,
---   up = {x,y,z} or nil }.
---
--- A caller with matrices of its own -- the VR eyes, whose view comes from
--- a tracked pose and whose projection is an off-centre frustum no
--- eye/focus/fov triple can express -- sets `view` and `proj` instead, and
--- the eye/focus fields stay for everything that reasons about the camera
--- rather than projecting with it (setLook, the sky, the water's lean).
+-- { eye = {x,y,z}, focus = {x,y,z}, fov = radians, curve = k or nil }.
 --
 -- The orbit is the free-roam camera and it is described entirely by ONE
 -- number, the pitch, because that is all a camera following the player over
@@ -444,12 +437,11 @@ end
 -- way either way.
 Voxel3D.camera = nil
 
--- This frame's camera RAY FAN, set by viewProjection alongside vp: the
--- world direction a canvas point looks along (see Sky.paint's `ray`).
--- Present for every free-pitch camera -- the VR eyes bring theirs
--- (VRRig.eyeCamera), a placed eye/focus camera gets one built -- and nil
--- for the orbit, whose frame-hung sky is the classic look.
-Voxel3D.skyRayLive = nil
+-- The non-VR camera selected by the voxel overworld. Kept separate from
+-- `camera`, which is temporarily owned by a headset eye or a battle camera.
+-- That lets the same player-height view be used as the VR anchor without
+-- making the optional headset path responsible for choosing game cameras.
+Voxel3D.viewCamera = nil
 
 -- ------- which way, and how steeply, this camera looks
 --
@@ -486,79 +478,111 @@ local function setLook(eye, focus)
   Voxel3D.lookFlat = { dx / flat, 0, dz / flat }
 end
 
+local function vec3(value)
+  if type(value) ~= "table" then return nil end
+  return { value[1] or value.x, value[2] or value.y, value[3] or value.z }
+end
+
+local function normalize3(value, fallback)
+  local length = math.sqrt(value[1] * value[1] + value[2] * value[2]
+    + value[3] * value[3])
+  if length < 1e-6 then return fallback end
+  return { value[1] / length, value[2] / length, value[3] / length }
+end
+
+local function cross3(a, b)
+  return { a[2] * b[3] - a[3] * b[2],
+           a[3] * b[1] - a[1] * b[3],
+           a[1] * b[2] - a[2] * b[1] }
+end
+
+local function quaternionRotate(q, vector)
+  local x, y, z, w = q.x, q.y, q.z, q.w
+  local tx = 2 * (y * vector[3] - z * vector[2])
+  local ty = 2 * (z * vector[1] - x * vector[3])
+  local tz = 2 * (x * vector[2] - y * vector[1])
+  return {
+    vector[1] + w * tx + y * tz - z * ty,
+    vector[2] + w * ty + z * tx - x * tz,
+    vector[3] + w * tz + x * ty - y * tx,
+  }
+end
+
+-- OpenXR's pose is expressed in a Y-up reference space, while this renderer
+-- applies a Y-down clip correction for LOVE canvases. Mirror Y before and
+-- after the headset rotation so vertical head motion is not inverted; X/Z
+-- (including yaw) stay in the same world handedness.
+local function quaternionRotateHead(q, vector)
+  local rotated = quaternionRotate(q, {
+    vector[1], -vector[2], vector[3],
+  })
+  return { rotated[1], -rotated[2], rotated[3] }
+end
+
 -- View and projection for a `vw` x `vh` world-pixel view centred on
 -- (cx, cy) in world pixels. Returns the combined matrix.
 function Voxel3D.viewProjection(cx, cy, vw, vh)
-  local cam = Voxel3D.camera
+  local cam = Voxel3D.camera or Voxel3D.viewCamera
   if cam then
-    local eye, focus = cam.eye, cam.focus
-    Voxel3D.eye = eye
-    -- kept beside the eye for horizonY: where the sky's pale end goes is a
-    -- question about which way this camera looks, and only these two answer it
-    Voxel3D.focus = focus
-    setLook(eye, focus)
-    -- a camera that brought its own matrices (a VR eye) projects with
-    -- them; only the clip-space Y flip is added, for the same canvas
-    -- reason as every other branch here
-    if cam.view and cam.proj then
-      Voxel3D.fovY = cam.fov
-      -- the VR eyes bring their fan with them (VRRig.eyeCamera)
-      Voxel3D.skyRayLive = cam.skyRay
-      return Mat4.mul(Mat4.mul(Mat4.scale(1, -1, 1), cam.proj), cam.view)
+    local eye, focus = vec3(cam.eye), vec3(cam.focus)
+    if eye and focus then
+      local up = vec3(cam.up) or { 0, 1, 0 }
+      local delta = cam.orientationDelta
+      local baseEye, baseFocus = vec3(cam.baseEye), vec3(cam.baseFocus)
+      if type(delta) == "table" and baseEye and baseFocus then
+        local baseForward = normalize3({
+          baseFocus[1] - baseEye[1],
+          baseFocus[2] - baseEye[2],
+          baseFocus[3] - baseEye[3],
+        }, { 0, 0, -1 })
+        local baseRight = normalize3(cross3(baseForward, { 0, 1, 0 }),
+                                     { 1, 0, 0 })
+        local baseUp = cross3(baseRight, baseForward)
+        local forward = normalize3(quaternionRotateHead(delta, baseForward),
+                                   baseForward)
+        local right = normalize3(quaternionRotateHead(delta, baseRight),
+                                 baseRight)
+        up = normalize3(quaternionRotateHead(delta, baseUp), baseUp)
+        local distance = math.sqrt(
+          (baseFocus[1] - baseEye[1]) ^ 2
+          + (baseFocus[2] - baseEye[2]) ^ 2
+          + (baseFocus[3] - baseEye[3]) ^ 2)
+        focus = { eye[1] + forward[1] * distance,
+                  eye[2] + forward[2] * distance,
+                  eye[3] + forward[3] * distance }
+        -- Keep the basis orthogonal after a long sequence of headset updates.
+        up = normalize3(cross3(right, forward), up)
+      end
+      Voxel3D.eye = eye
+      -- kept beside the eye for horizonY: where the sky's pale end goes is a
+      -- question about which way this camera looks, and only these two answer it
+      Voxel3D.focus = focus
+      setLook(eye, focus)
+      local dx = eye[1] - focus[1]
+      local dy = eye[2] - focus[2]
+      local dz = eye[3] - focus[3]
+      local dist = math.max(1, math.sqrt(dx * dx + dy * dy + dz * dz))
+      -- kept for the passes that measure an ANGLE against this camera rather
+      -- than a position: the water's reflected sun is sized in radians, and
+      -- radians per canvas pixel is exactly this over the frame height
+      local near, far = math.max(1, dist * 0.05), dist * 4 + 4096
+      local fov = cam.fov
+      local fovY = type(fov) == "table" and (fov.up - fov.down) or fov
+      Voxel3D.fovY = fovY
+      local proj
+      if type(fov) == "table" and fov.left and fov.right
+         and fov.up and fov.down then
+        proj = Mat4.perspectiveOffAxis(fov.left, fov.right, fov.up,
+                                       fov.down, near, far)
+      else
+        proj = Mat4.perspective(fov, vw / vh, near, far)
+      end
+      -- the same clip-space Y flip the orbit needs, for the same reason: we
+      -- bypass LOVE's transform_projection and canvas coordinates run Y down
+      proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
+      return Mat4.mul(proj, Mat4.lookAt(eye, focus, up))
     end
-    local dx = eye[1] - focus[1]
-    local dy = eye[2] - focus[2]
-    local dz = eye[3] - focus[3]
-    local dist = math.max(1, math.sqrt(dx * dx + dy * dy + dz * dz))
-    -- kept for the passes that measure an ANGLE against this camera rather
-    -- than a position: the water's reflected sun is sized in radians, and
-    -- radians per canvas pixel is exactly this over the frame height
-    Voxel3D.fovY = cam.fov
-    local proj = Mat4.perspective(cam.fov, vw / vh,
-                                  math.max(1, dist * 0.05), dist * 4 + 4096)
-    -- the same clip-space Y flip the orbit needs, for the same reason: we
-    -- bypass LOVE's transform_projection and canvas coordinates run Y down
-    proj = Mat4.mul(Mat4.scale(1, -1, 1), proj)
-    -- The camera's RAY FAN, for the sky's skybox path (Sky.paint's `ray`):
-    -- a placed camera with a FREE PITCH -- the first-person rig, steered
-    -- by a mouse on the flat screen -- must not hang its gradient off the
-    -- frame, or looking up and down drags the bands with the view. Built
-    -- from the very basis the view below is: forward, the true right, the
-    -- true up, and the symmetric frustum's tangents.
-    local upv = cam.up or { 0, 1, 0 }
-    local fx, fy, fz = -dx / dist, -dy / dist, -dz / dist
-    local crx = fy * upv[3] - fz * upv[2]
-    local cry = fz * upv[1] - fx * upv[3]
-    local crz = fx * upv[2] - fy * upv[1]
-    local crl = math.sqrt(crx * crx + cry * cry + crz * crz)
-    if crl > 1e-6 then
-      crx, cry, crz = crx / crl, cry / crl, crz / crl
-      local cux = cry * fz - crz * fy
-      local cuy = crz * fx - crx * fz
-      local cuz = crx * fy - cry * fx
-      local tanY = math.tan(cam.fov / 2)
-      local tanX = tanY * (vw / vh)
-      Voxel3D.skyRayLive = {
-        base = { fx - crx * tanX + cux * tanY,
-                 fy - cry * tanX + cuy * tanY,
-                 fz - crz * tanX + cuz * tanY },
-        du = { crx * 2 * tanX, cry * 2 * tanX, crz * 2 * tanX },
-        dv = { cux * -2 * tanY, cuy * -2 * tanY, cuz * -2 * tanY },
-      }
-    else
-      Voxel3D.skyRayLive = nil
-    end
-    -- world up by default, so the horizon stays level -- a placed camera
-    -- that rolled with its own pitch would tip the whole arena. A caller
-    -- may hand its own up: the first-person BLEND does, because its far
-    -- end is the orbit, whose up leans with the pitch -- world up at the
-    -- orbit's steep end degenerates against a straight-down view.
-    return Mat4.mul(proj, Mat4.lookAt(eye, focus, cam.up or { 0, 1, 0 }))
   end
-
-  -- the orbit: a fixed pitch per rung, and the classic frame-hung sky --
-  -- no ray fan wanted
-  Voxel3D.skyRayLive = nil
 
   local a = Voxel.angle
   local focal = Voxel.FOCAL
@@ -627,56 +651,6 @@ function Voxel3D.horizonY(h)
   return (y / w * 0.5 + 0.5) * h
 end
 
--- The horizon as a LINE rather than a row, for a camera that can ROLL --
--- a VR eye. A head tipped sideways tips the true horizon across the
--- canvas, and a sky painted in flat rows then visibly hinges with the
--- head. So: project the flat forward direction (a point ON the vanishing
--- line) and the same direction nudged a hair of world-up (a point just
--- above it); the difference is the canvas direction "down toward the
--- ground", perpendicular to the horizon however the head is tipped.
---
--- Returns (ax, ay, edge, top): a unit axis in canvas pixels pointing from
--- sky toward ground, the horizon's signed distance along it -- a pixel at
--- canvas (x, y) is above the horizon while x*ax + y*ay < edge -- and,
--- when `elev` (radians) is given, the distance the direction that far
--- ABOVE the horizon projects to. `top` is what pins the gradient's far
--- end to a real direction in the sky: extrapolating it linearly from a
--- pixels-per-radian estimate left the bands sliding as a pitch moved the
--- horizon through the frame, because a perspective's rows are tan-spaced,
--- not angle-spaced. nil `top` (the elevated direction is outside this
--- frustum's forward hemisphere) leaves the caller its estimate. nil
--- everything with no horizon in front of this camera.
-function Voxel3D.horizonLine(w, h, elev)
-  local m, eye, focus = Voxel3D.vp, Voxel3D.eye, Voxel3D.focus
-  if not (m and eye and focus and w and h and h > 0) then return nil end
-  local dx = focus[1] - eye[1]
-  local dz = focus[3] - eye[3]
-  local len = math.sqrt(dx * dx + dz * dz)
-  if len < 1e-6 then return nil end
-  dx, dz = dx / len, dz / len
-  local function proj(vx, vy, vz)
-    local x = m[1] * vx + m[2] * vy + m[3] * vz
-    local y = m[5] * vx + m[6] * vy + m[7] * vz
-    local ww = m[13] * vx + m[14] * vy + m[15] * vz
-    if ww <= 1e-6 then return nil end
-    return (x / ww * 0.5 + 0.5) * w, (y / ww * 0.5 + 0.5) * h
-  end
-  local qx, qy = proj(dx, 0, dz)
-  if not qx then return nil end
-  local rx, ry = proj(dx, 0.02, dz)
-  if not rx then return nil end
-  local ax, ay = qx - rx, qy - ry
-  local al = math.sqrt(ax * ax + ay * ay)
-  if al < 1e-6 then ax, ay = 0, 1 else ax, ay = ax / al, ay / al end
-  local top = nil
-  if elev then
-    local ce, se = math.cos(elev), math.sin(elev)
-    local tx, ty = proj(dx * ce, se, dz * ce)
-    if tx then top = tx * ax + ty * ay end
-  end
-  return ax, ay, qx * ax + qy * ay, top
-end
-
 -- ------- the hour's light
 --
 -- What the scene shader multiplies every surface by (see dayTint in the
@@ -721,81 +695,10 @@ function Voxel3D.skyBody(w, h)
   return {
     x = (x / ww * 0.5 + 0.5) * w,
     y = (y / ww * 0.5 + 0.5) * h,
-    -- the body's WORLD direction, for the skybox path: a ray-fan caller
-    -- measures the twilight glow by the angle between a pixel's ray and
-    -- this, so the glow is pinned to the sky like the bands are (see
-    -- Sky.paint's glowDir)
-    dx = b.dx, dy = b.dy, dz = b.dz,
     moon = b.moon,
     glowAmt = amt,
     glowColor = color,
   }
-end
-
--- ------- the VR sky's world-anchored pieces
---
--- Both exist because a headset showed the shortcuts: a gradient painted
--- off the frame moved with the head that carried the frame, and a
--- screen-space disc re-snapped its cell grid with every head movement
--- and held its face square to the canvas instead of to the world. The
--- gradient's fix rides the camera record itself (skyRay -- see VRRig and
--- Sky's useRay path); the disc's is below.
-
--- The sun or moon as a QUAD IN THE WORLD: the baked cell art
--- (Sky.discImage) on a square spanned about the hour's direction, its
--- corners projected through this very eye -- so the disc is pinned to
--- the sky like the terrain is to the ground, stable under every head
--- motion, its face upright over the world. Runs inside beginScene's sky
--- window, before the depth mode is set, so the world draws over it.
-local discMesh = nil
-
-local function drawWorldDisc(w, h)
-  local b = DayNight.body()
-  if not (b and b.dy and b.dy > 0.005) then return end
-  local amt = DayNight.glow()
-  local img = Sky.discImage(b.moon, Sky.discLooming(amt, b.moon))
-  if not img then return end
-  local m = Voxel3D.vp
-  if not m then return end
-  local hl = math.sqrt(b.dx * b.dx + b.dz * b.dz)
-  if hl < 1e-6 then return end
-  -- right = horizontal, perpendicular to the direction; up completes it
-  local rx, rz = b.dz / hl, -b.dx / hl
-  local ux = -rz * b.dy
-  local uy = rz * b.dx - rx * b.dz
-  local uz = rx * b.dy
-  local ul = math.sqrt(ux * ux + uy * uy + uz * uz)
-  if ul < 1e-6 then return end
-  ux, uy, uz = ux / ul, uy / ul, uz / ul
-  if uy < 0 then ux, uy, uz = -ux, -uy, -uz end
-  -- apparent size is an ANGLE, the same fraction of the view the flat
-  -- screen's disc takes of its frame; the low sun looms exactly as there
-  local ang = Sky.DISC_FRAC * (Voxel3D.fovY or 1)
-  if Sky.discLooming(amt, b.moon) then ang = ang * 1.4 end
-  local k = math.tan(ang)
-  local verts = {}
-  local corners = { { -1, -1, 0, 1 }, { 1, -1, 1, 1 },
-                    { 1, 1, 1, 0 }, { -1, 1, 0, 0 } }
-  for i, c in ipairs(corners) do
-    local vx = b.dx + (rx * c[1] + ux * c[2]) * k
-    local vy = b.dy + (uy * c[2]) * k
-    local vz = b.dz + (rz * c[1] + uz * c[2]) * k
-    local x = m[1] * vx + m[2] * vy + m[3] * vz
-    local y = m[5] * vx + m[6] * vy + m[7] * vz
-    local ww = m[13] * vx + m[14] * vy + m[15] * vz
-    if ww <= 1e-6 then return end
-    verts[i] = { (x / ww * 0.5 + 0.5) * w, (y / ww * 0.5 + 0.5) * h,
-                 c[3], c[4] }
-  end
-  pcall(function()
-    if not discMesh then
-      discMesh = love.graphics.newMesh(4, "fan", "stream")
-    end
-    discMesh:setVertices(verts)
-    discMesh:setTexture(img)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(discMesh)
-  end)
 end
 
 -- ----------------------------------------------------------------- scene --
@@ -820,8 +723,11 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   local name = slot or "world"
   local slotHeld = slots[name]
   if not (slotHeld and slotHeld.w == w and slotHeld.h == h) then
-    local ok, c = pcall(love.graphics.newCanvas, w, h)
-    if not ok then return false end
+    -- VR submission uses Canvas:newImageData(), so make the colour target
+    -- explicitly readable and keep its pixel size independent of display DPI.
+    local ok, c = pcall(love.graphics.newCanvas, w, h,
+                        { dpiscale = 1, format = "rgba8", readable = true })
+    if not ok or not c then return false end
     c:setFilter("nearest", "nearest")
     if slotHeld then releaseSlot(slotHeld) end
     -- the depth canvas is sized with its colour, so a window resize
@@ -852,20 +758,10 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   -- screen. The sky's dither grid is cut to it, and so is the water's --
   -- one number, so the two break up on the same checkerboard.
   Voxel3D.cell = w / math.max(1, vw or w)
-  -- A FREE-PITCH camera's sky is ANCHORED IN SPACE, where the orbit's is
-  -- glued to the frame. One discriminator: skyRayLive, set by
-  -- viewProjection above for every camera whose pitch the player steers
-  -- -- the VR eyes and the flat first-person rig alike. With a fan, the
-  -- gradient is a SKYBOX (every pixel takes its band, and its GBC
-  -- checker, from its ray's true elevation -- no motion of the camera
-  -- moves a band, only the clock recolours them) and the sun or moon
-  -- hangs in the WORLD (drawWorldDisc). Without one -- the orbit, whose
-  -- pitch is the rung's -- the classic frame-hung painting stands.
-  local skyRay = Voxel3D.skyRayLive
-  local hy = Voxel3D.horizonY(h)
-  -- where the sky's bottom edge lands, which is what the reflection
+  -- and where the sky's bottom edge lands, which is what the reflection
   -- reads its bands against (see Water). nil when nothing painted bands.
-  Voxel3D.skyEdge = (sky and sky.bands) and Sky.region(h, hy) or nil
+  Voxel3D.skyEdge = (sky and sky.bands)
+                    and Sky.region(h, Voxel3D.horizonY(h)) or nil
   if sky then
     love.graphics.clear(sky[1], sky[2], sky[3], sky[4] or 1, true, true)
     -- The sky goes down here, in the one window in this function where a
@@ -878,14 +774,8 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
     -- are the same size as the world's own and follow every resize and zoom.
     -- The banded sky also hangs the hour's sun or moon (skyBody projects it
     -- through this very camera); a flat sky has no bands and hangs nothing.
-    if skyRay and sky.bands then
-      Sky.paint(w, h, sky, nil, Voxel3D.cell, Voxel3D.skyBody(w, h),
-                nil, nil, skyRay)
-      drawWorldDisc(w, h)
-    else
-      Sky.paint(w, h, sky, hy, Voxel3D.cell,
-                sky.bands and Voxel3D.skyBody(w, h) or nil)
-    end
+    Sky.paint(w, h, sky, Voxel3D.horizonY(h), Voxel3D.cell,
+              sky.bands and Voxel3D.skyBody(w, h) or nil)
   else
     love.graphics.clear(0, 0, 0, 0, true, true)
   end
@@ -911,7 +801,7 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   pcall(sh.send, sh, "sunTexel", { texel, texel })
   if grid then
     pcall(sh.send, sh, "gridDark", VoxelGrid.DARK)
-    pcall(sh.send, sh, "gridWidth", VoxelGrid.width())
+    pcall(sh.send, sh, "gridWidth", VoxelGrid.WIDTH)
   end
   -- ordinary shading until the silhouette pass asks for otherwise. Sent
   -- every frame rather than once, because a scene that opened mid-ghost --
@@ -1358,9 +1248,6 @@ function Voxel3D.invalidate()
   end
   canvas, canvasW, canvasH = nil, 0, 0
   held = nil
-  -- the VR sky's disc mesh belongs to this context like the canvases do
-  if discMesh and discMesh.release then pcall(discMesh.release, discMesh) end
-  discMesh = nil
   ShadowMap.invalidate()
   -- the sky is part of this pass and holds a shader of its own
   Sky.invalidate()

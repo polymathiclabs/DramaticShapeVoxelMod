@@ -14,6 +14,7 @@ local V = ...
 
 local Mat4 = V.require("Mat4")
 local Voxel3D = V.require("Voxel3D")
+local CameraMode = V.require("CameraMode")
 local ShadowMap = V.require("ShadowMap")
 local ChunkMesher = V.require("ChunkMesher")
 local SpriteBillboards = V.require("SpriteBillboards")
@@ -24,9 +25,6 @@ local Sky = V.require("Sky")
 local Water = V.require("Water")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
-local FirstPerson = V.require("FirstPerson")
-local BattleBillboard = V.require("BattleBillboard")
-local Pokedex = V.require("Pokedex")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
@@ -217,22 +215,6 @@ local function frameFor(def, facing, phase, flip)
   return frame, mirror
 end
 
--- The facing a pose SHOWS this camera. The flat frames are "how this pose
--- looks from the south", which is where the orbit always stands; a
--- first-person eye stands anywhere, so deep enough into the blend the
--- facing is remapped to how the pose looks from THERE -- walk behind an
--- NPC and their card wears the back sprite. Used by the camera draw and
--- the sun pass BOTH: the card the sun stored and the transform a lit card
--- reads its own shadowing with must describe the same frame, or the
--- mirror-flip half of the pair asks the map about texels the sun filed
--- under the other cheek.
-local function viewFacing(p)
-  if FirstPerson.cardBlend() > 0.5 then
-    return FirstPerson.apparentFacing(p.facing, p.px + 8, p.py + 8)
-  end
-  return p.facing
-end
-
 -- FALLBACK ONLY (see castShadows below). Draw one entity's drop shadow as
 -- a decal: its current sprite frame as a single quad, flattened onto the
 -- ground along the sun line (Voxel3D.shadowMatrix). Runs inside
@@ -255,40 +237,17 @@ end
 -- Shared by the solid draw and the silhouette below, so the two can never
 -- drift apart -- a silhouette standing anywhere but exactly behind the
 -- figure would read as a second character.
---
--- IN FIRST PERSON the card stops leaning and starts TURNING: upright, yawed
--- about its feet to face the eye (cylindrical billboarding). A south-facing
--- card is invisible edge-on to an eye standing east of it, which no orbit
--- camera could ever do and a first-person one does constantly. The blend
--- carries one pose into the other -- the lean eases out as the yaw eases in
--- -- and cardBlend is zero for every camera that is not the first-person
--- rig, the battle's placed shot included, so nothing else moves.
--- The pitch the sprite cards lean back by -- normally the rung's own
--- camera angle, overridable in radians. VR sets the override to the top
--- rung's 75 degrees for every diorama and battle frame: a table watched
--- from a freely moving head has no one camera pitch for the cards to
--- match, and the near-upright top-rung lean is the pose that reads as
--- "standing" from anywhere around it. nil (the default, and the flat
--- screen always) leans with the rung as ever.
-VoxelScene.spriteLean = nil
-
-local function leanAngle()
-  return VoxelScene.spriteLean or V.require("VoxelState").angle
-end
-
 local function billboardMatrix(px, py, y, mirror)
-  local b = FirstPerson.cardBlend()
-  local m = Mat4.translate(px + 8, y, py + 8)
-  if b > 0 then
-    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(px + 8, py + 8) * b))
-  end
-  m = Mat4.mul(m, Mat4.rotateX((leanAngle() - math.pi / 2) * (1 - b)))
+  local Voxel = V.require("VoxelState")
+  local m = Mat4.mul(Mat4.translate(px + 8, y, py + 8),
+                     Mat4.rotateX(Voxel.angle - math.pi / 2))
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
   return Mat4.mul(m, Mat4.translate(-8, 0, 0))
 end
 
 local function billboardPull()
-  return VoxelScene.pull(math.max(leanAngle(), 0.05))
+  local Voxel = V.require("VoxelState")
+  return VoxelScene.pull(math.max(Voxel.angle, 0.05))
 end
 
 -- An authored FIGURE's card -- a person the tileset draws INTO a piece of
@@ -300,23 +259,10 @@ end
 -- the Pokemon Center couch reads face-on at every tilt like the NPCs
 -- around him. No cell centring: unlike a character he is not standing on a
 -- cell, he is standing where he was drawn, which may straddle two.
---
--- First person turns him at the eye like the walkers (see billboardMatrix)
--- -- about his own middle, because unlike a character card his local space
--- starts at x = 0 rather than being anchored by a -8 shift, and a yaw about
--- his edge would swing him off his seat. The width rode in on the record
--- for exactly this (ChunkMesher.buildFigureMeshes).
 local function figureMatrix(f, offX, offZ)
-  local b = FirstPerson.cardBlend()
-  local wx, wz = f.wx + (offX or 0), f.wz + (offZ or 0)
-  local m = Mat4.translate(wx, f.y, wz)
-  if b > 0 and f.w and f.w > 0 then
-    local half = f.w / 2
-    m = Mat4.mul(m, Mat4.translate(half, 0, 0))
-    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(wx + half, wz) * b))
-    m = Mat4.mul(m, Mat4.translate(-half, 0, 0))
-  end
-  return Mat4.mul(m, Mat4.rotateX((leanAngle() - math.pi / 2) * (1 - b)))
+  local Voxel = V.require("VoxelState")
+  return Mat4.mul(Mat4.translate(f.wx + (offX or 0), f.y, f.wz + (offZ or 0)),
+                  Mat4.rotateX(Voxel.angle - math.pi / 2))
 end
 
 -- What the sun sees: the same card UNLEANED and flattened, exactly as
@@ -388,7 +334,7 @@ VoxelScene.drawEntity = drawEntity
 -- mesh for it.
 local function drawGhost(p)
   local def = p.sprite.def
-  local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip)
+  local frame, mirror = frameFor(def, p.facing, p.phase, p.flip)
   local mesh = SpriteBillboards.shadowQuad(def, frame)
   if not mesh then return end
   local tex = p.sprite:resolveImage()
@@ -509,7 +455,11 @@ local function posesOf(state, spriteColors)
     }
   end
   for _, e in ipairs(state.entities or {}) do
-    if not (state.flyAnim and e == state.player) then
+    local own = e == state.player
+    -- In POV the camera occupies the player's head, so drawing the player's
+    -- own card would put a full sprite directly in front of the lens.
+    if not (state.flyAnim and own)
+       and not (own and CameraMode.isPOV()) then
       local sprite, vx, vy, facing, phase, flip = e:pose()
       posed[#posed + 1] = {
         sprite = sprite, px = vx, py = e.py,
@@ -517,13 +467,7 @@ local function posesOf(state, spriteColors)
         gh = groundAt(state.map, e.cellX, e.cellY),
         lift = e.py - vy, colors = colors,
       }
-      if e == state.player then
-        me = posed[#posed]
-        -- marked so the camera draw can leave the card out in first
-        -- person, where it would fill the lens from inside; the SUN pass
-        -- reads the same list and deliberately does not check the mark
-        me.isPlayer = true
-      end
+      if e == state.player then me = posed[#posed] end
     end
   end
   return posed, me
@@ -590,18 +534,9 @@ local function drawCast(state, posed, atlasFor)
   -- drawEntity resolves the lean-over-the-wall-in-front case, and a
   -- character genuinely behind a building is far deeper and loses the
   -- test, so buildings and trees really occlude.
-  --
-  -- In first person two of them change: the player's own card is left out
-  -- (the eye is standing in it), and every other card wears the frame its
-  -- pose SHOWS this eye (viewFacing) rather than the one it shows the
-  -- south. Both run through here, so the water's reflection copy -- drawn
-  -- by this same function -- agrees with the frame to the pixel.
-  local hideMe = FirstPerson.hidePlayer()
   for _, p in ipairs(posed) do
-    if not (p.isPlayer and hideMe) then
-      drawEntity(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
-                 p.colors, p.lift)
-    end
+    drawEntity(p.sprite, p.px, p.py, p.facing, p.phase, p.flip, p.gh,
+               p.colors, p.lift)
   end
   -- back on for everything textured from the atlas again -- figures, grass
   -- and flowers all sample it, where the mask's coordinates are honest
@@ -653,48 +588,8 @@ end
 -- The overworld's alone: the staged battle draws its water plain, always --
 -- its placed camera reads this pass wrong, and a stage set wants painted
 -- water anyway (see BattleScene, where the choice is argued).
--- ------- and why the flat draw happens FIRST while the world is curved
---
--- The reflective pass writes no depth -- it cannot, the depth canvas is
--- detached for the length of it so the shader can READ it -- and it does its
--- own depth test against that texture instead. That test asks whether
--- something opaque is in front, and it answers correctly for every case but
--- one: WATER IN FRONT OF WATER. Nothing puts water in the depth buffer, so
--- no lake can hide another, and the pass simply paints them in mesh order.
---
--- On a flat world that never matters: every surface lies in the one plane
--- at its own recessed height, and a farther sheet always lands farther down
--- the screen. THE WORLD CURVE ENDS THAT. The bend drops the world by the
--- square of its distance, so the far side of the map swings down and back
--- up into the near field of view -- and a sheet of sea a hundred and fifty
--- tiles away, drawn later in the same mesh, paints straight over the pond
--- at the player's feet. Not a reflection of the far shore: the far shore
--- itself, rasterised on top of the water in front of you.
---
--- So WHILE THE CURVE IS ON, the meshes go down flat first, through the
--- ordinary scene shader with depth writes on, and the reflective pass draws
--- over the top of what survived: the depth buffer now holds the water
--- surface, so the pass's own test throws the far sheet away, and the
--- reflection COPY holds it too, so a ray grazing another part of the lake
--- reads water rather than the void behind it.
---
--- With the curve OFF the prepass is not just unnecessary, it is a LIABILITY,
--- and it stays off -- the reflective pass tests only against terrain, as it
--- always did. Painting the surface into the depth texture turns the pass's
--- test into a comparison of the surface against ITSELF, which asks the two
--- rasterisations to agree to within interpolation error -- and on mobile
--- GPUs they don't reliably (that fight is what put the Android port back on
--- flat water). Confined to the curve there is no regression to reach: the
--- flat world never had the far-shore bug in the first place.
 function VoxelScene.drawWater(draws, cast)
-  -- prepass only under the bend; see the header
-  local curved = (Voxel3D.curveK or 0) > 0
-  if curved then
-    for _, d in ipairs(draws) do
-      Voxel3D.draw(d[1], d[2], d[3])
-    end
-  end
-  local plain = not curved
+  local plain = true
   if Water.enabled() and Voxel3D.depthReadable() then
     local mirror, depth = Voxel3D.beginWater(cast)
     local w, h = Voxel3D.size()
@@ -717,12 +612,10 @@ function VoxelScene.drawWater(draws, cast)
     -- Unconditionally, and OUTSIDE the success branch: beginWater unbinds
     -- the shader and the depth mode BEFORE it can discover it cannot go on,
     -- so a frame that bails halfway through has to be put back together
-    -- exactly like one that succeeded -- otherwise every pass after it runs
-    -- with no shader and no depth test.
+    -- exactly like one that succeeded -- otherwise the plain draw below (and
+    -- every pass after it) runs with no shader and no depth test.
     Voxel3D.endWater()
   end
-  -- the fallback flat draw -- unless the curve's prepass already put the
-  -- same meshes down, in which case a bailed frame is already whole
   if plain then
     for _, d in ipairs(draws) do
       Voxel3D.draw(d[1], d[2], d[3])
@@ -757,10 +650,6 @@ local function shadowSignature(terrain, nbMesh, posed, cx, cy, vw, vh)
   -- few times a minute rather than every frame.
   put(math.floor(ShadowMap.KX * 128))
   put(math.floor(ShadowMap.KZ * 128))
-  -- and the first-person head: the box is fitted around wherever it looks
-  -- and the sprite cards swap frames as it circles them, so a turn on the
-  -- spot re-fits and redraws exactly like a camera move ("" outside 1ST)
-  put(FirstPerson.signature())
   put(tostring(terrain))
   for i = 1, #nbMesh do put(tostring(nbMesh[i])) end
   for _, p in ipairs(posed) do
@@ -784,12 +673,9 @@ end
 -- left out on purpose: thousands of tufts would cast a speckle no bigger
 -- than the pixels it lands on, at the cost of the mesh being drawn twice.
 local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
-                           atlasFor, water, nbWater, battleCards, battleToken)
+                           atlasFor, water, nbWater)
   if not ShadowMap.available() then return end
   local sig = shadowSignature(terrain, nbMesh, posed, cx, cy, vw, vh)
-  -- a staged fight's pics move every frame the animation does, and the sun
-  -- has to follow them (VR frames only; see render)
-  if battleToken then sig = sig .. "|btl" .. tostring(battleToken) end
   if not ShadowMap.stale(sig) then return end
   if not ShadowMap.begin(cx, cy, vw, vh) then return end
 
@@ -836,12 +722,7 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
   end
   for _, p in ipairs(posed) do
     local def = p.sprite.def
-    -- viewFacing, exactly as the camera draw picks it (see viewFacing for
-    -- why the two passes must agree): in first person the sun's card
-    -- swaps frame as the eye circles, which costs a redraw the signature
-    -- already charges for (FirstPerson.signature) and keeps a card from
-    -- fringing against a mirror-flipped record of itself
-    local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip)
+    local frame, mirror = frameFor(def, p.facing, p.phase, p.flip)
     local mesh = SpriteBillboards.shadowQuad(def, frame)
     if mesh then
       ShadowMap.draw(mesh, p.sprite:resolveImage(),
@@ -850,24 +731,12 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
                                             mirror)))
     end
   end
-  -- a staged fight's mons (VR frames only): the same cards the eye pass
-  -- stands on the arena, snugged like every thin card, marked as the cast
-  -- so the water can decline them like everybody else's silhouette
-  for _, card in ipairs(battleCards or {}) do
-    ShadowMap.draw(BattleBillboard.mesh(), card.tex, ShadowMap.snug(card.model))
-  end
   ShadowMap.sprites(false)
 
   ShadowMap.finish(sig)
 end
 
--- Render the world. Without `eyes`, one frame into one canvas -- the flat
--- path every rung has always taken. With `eyes` -- a list of
--- { camera, w, h, slot, adopt } records, plus optional cx/cy for the
--- scene centre -- the same frame is drawn once per entry and the list of
--- canvases comes back: the VR path, two eyes over one shared shadow map,
--- pose capture and glint step.
-function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
+function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   -- With nothing cached at all (the first frame of a fresh toggle),
   -- return nil: the engine keeps the 2D path for the frame and
   -- Voxel.ready holds the camera tween at flat, so the switch waits
@@ -877,6 +746,12 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
 
   local cam = state.camera
   local cx, cy = cam.x + vw / 2, cam.y + vh / 2
+  local player = state.player
+  local ground = player and groundAt(state.map, player.cellX, player.cellY)
+  -- Voxel3D.camera is temporarily occupied by a VR eye when stereo is
+  -- active; viewCamera remains the selected desktop/base pose for this
+  -- scene and is also what VRStereo uses to build its headset anchor.
+  Voxel3D.viewCamera = CameraMode.view(state, vw, vh, ground)
 
   -- the hour's light, before anything is cast or drawn: point the shared
   -- rig at the clock (or at noon, indoors -- a cave at midnight is exactly
@@ -894,7 +769,13 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   local GlassMask = V.require("GlassMask")
   Voxel3D.glassMask = outdoor and GlassMask.texture(state.map.tileset) or nil
   Voxel3D.glassNight = outdoor and DayNight.windowLight() or 0
-  local g = VoxelScene.glintStep(glint, cx, cy)
+  local g
+  if options and options.glint then
+    g = options.glint
+  else
+    g = VoxelScene.glintStep(glint, cx, cy)
+    if options then options.glint = g end
+  end
   Voxel3D.glassPhase, Voxel3D.glassGlint = g.phase, g.amp
 
   local function atlasFor(map)
@@ -909,52 +790,12 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   end
 
   local posed, me = posesOf(state, spriteColors)
+  castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh, atlasFor,
+              water, nbWater)
 
-  -- The first-person rig, built (or blended) for this frame and handed to
-  -- Voxel3D BEFORE either pass runs: the sun's box is fitted around this
-  -- camera, and every card matrix asks it which way to turn. With the
-  -- blend fully out the call clears the placed camera and the orbit is
-  -- exactly what it always was. The scene centre it returns walks from
-  -- the orbit's view centre into the head, so the curve's focus and the
-  -- depth reference follow the camera actually in charge.
-  --
-  -- A VR frame skips all of it: the caller brought its own cameras, and
-  -- its own idea of the scene centre with them.
-  if not eyes then
-    local fpRig, fpCx, fpCy = FirstPerson.frame(me, cx, cy, vw, vh)
-    if fpRig then cx, cy = fpCx, fpCy end
-  elseif eyes.cx then
-    cx, cy = eyes.cx, eyes.cy
+  if not Voxel3D.beginScene(w, h, cx, cy, vw, vh, skyFor(state.map)) then
+    return nil
   end
-
-  -- A staged fight, seen by the VR eyes: the flat screen draws the battle
-  -- SCREEN while one is up (this pass never runs), but the headset keeps
-  -- looking at the world, so the world had better have the fight on it.
-  -- Fetched per frame for the sun, and again per EYE in drawScene, because
-  -- the cards yaw toward whichever eye is asking.
-  local battleCards, battleTex, battleToken = nil, nil, nil
-  if eyes then
-    local okB, cards, tex, token = pcall(function()
-      return V.require("OverworldBattle").worldCards()
-    end)
-    if okB and cards then
-      battleCards, battleTex, battleToken = cards, tex, token
-    end
-  end
-
-  -- The sun's box, pushed along the first-person look so it covers the
-  -- ground THIS camera sees (a no-op at blend zero): the orbit's fit
-  -- reaches far north and barely south, which is right for every rung
-  -- but a head free to face south.
-  local shCx, shCy = FirstPerson.shadowCenter(cx, cy, vh)
-  castShadows(state, terrain, nbMesh, posed, shCx, shCy, vw, vh, atlasFor,
-              water, nbWater, battleCards, battleToken)
-
-  -- Everything between beginScene and endScene, as one function: the flat
-  -- path runs it once, a VR frame runs it once PER EYE -- same posed
-  -- list, same shadow map, same glint, so the two eyes can never disagree
-  -- about anything but their viewpoint.
-  local function drawScene()
 
   Voxel3D.draw(terrain, atlasFor(state.map), nil)
   for i, nb in ipairs(state.neighbors or {}) do
@@ -972,7 +813,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   if not Voxel3D.shadowsActive() then
     Voxel3D.beginShadows()
     for _, p in ipairs(posed) do
-      drawShadow(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
+      drawShadow(p.sprite, p.px, p.py, p.facing, p.phase, p.flip, p.gh,
                  p.lift)
     end
     Voxel3D.endShadows()
@@ -1018,11 +859,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- wrote it, so the silhouette would paint over the player at all times.
   -- Every character then draws on top as usual, which leaves the silhouette
   -- showing in exactly one situation: where the world hides them.
-  --
-  -- Not in first person: the card it silhouettes is the one the camera is
-  -- standing inside, and "the world is in front of the player" is every
-  -- wall the player faces.
-  if me and not FirstPerson.hidePlayer() then
+  if me then
     Voxel3D.beginGhost()
     drawGhost(me)
     Voxel3D.endGhost()
@@ -1042,54 +879,14 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- character genuinely behind a building is far deeper and loses the
   -- test, so buildings and trees really occlude.
   drawCast(state, posed, atlasFor)
-  -- The staged fight's mons, standing on their arena cells in THIS eye's
-  -- view (VR frames only; battleTex is nil otherwise). Rebuilt per eye
-  -- because the cards yaw toward the eye that is looking. No wireframe
-  -- and no glass on them for the reasons BattleBillboard and the battle
-  -- pass each argue: the cards are not on the voxel grid, and their
-  -- texcoords mean nothing to the tileset's pane mask. The hit flash
-  -- rides the same flatten the battle pass uses, held short of solid.
-  if battleTex then
-    local okB, cards = pcall(function()
-      return V.require("OverworldBattle").worldCards()
-    end)
-    if okB and cards then
-      local BattleScene = V.require("BattleScene")
-      Voxel3D.glass(false)
-      Voxel3D.seams(false)
-      if battleTex.flash then
-        Voxel3D.flatten(BattleScene.FLASH_COLOR, BattleScene.FLASH_STRENGTH)
-      end
-      for _, card in ipairs(cards) do
-        Voxel3D.draw(BattleBillboard.mesh(), card.tex, card.model,
-                     BattleBillboard.PULL)
-      end
-      if battleTex.flash then Voxel3D.flatten(nil) end
-      -- and the MOVE ANIMATIONS, standing on the same arena: the
-      -- engine's own effects layer on the plane through both cells
-      -- (BattleScene.fxCard), pulled a little harder than the mons so
-      -- a burst plays over the card it is bursting on
-      local okA, fxTex, fxModel = pcall(function()
-        return V.require("OverworldBattle").worldAnim()
-      end)
-      if okA and fxTex and fxModel then
-        Voxel3D.draw(BattleBillboard.mesh(), fxTex, fxModel,
-                     BattleBillboard.PULL + 6)
-      end
-      Voxel3D.seams(true)
-      Voxel3D.glass(true)
-    end
-  end
   -- tall grass last, pulled camera-ward exactly as far as the characters
   -- were (same per-vertex shader bias, so grass never drifts either):
   -- relative depth between a walker and the tuft row south of their feet
   -- is preserved, so the row still overdraws feet -- the 3D version of
   -- the GB's grass-over-feet trick -- while grass keeps losing to the
   -- buildings it genuinely stands behind (far deeper than the pull).
-  -- the same angle the cards leaned by (leanAngle honours VR's override),
-  -- so the tuft rows keep exactly the characters' own depth handicap
-  local lean = math.max(leanAngle(), 0.05)
-  local pull = VoxelScene.pull(lean)
+  local Voxel = V.require("VoxelState")
+  local pull = VoxelScene.pull(math.max(Voxel.angle, 0.05))
   Voxel3D.draw(ChunkMesher.grass(state.map), atlasFor(state.map), nil, pull)
   for _, nb in ipairs(state.neighbors or {}) do
     Voxel3D.draw(ChunkMesher.grass(nb.map), atlasFor(nb.map),
@@ -1105,7 +902,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- lands behind the card and the player obscures the patch they stand
   -- ON, while the nearest flower of the cell south (+20) stays in front
   -- and keeps overdrawing their feet.
-  local fpull = math.max(0, pull - 8 * math.sin(lean))
+  local fpull = math.max(0, pull - 8 * math.sin(math.max(Voxel.angle, 0.05)))
   -- flowers are snugged casters too, so they read their own shadowing
   -- through the same snugged transform the sun stored them with
   Voxel3D.draw(ChunkMesher.flowers(state.map), atlasFor(state.map), nil,
@@ -1116,48 +913,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
                  ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
   end
 
-  -- The VR pokedex in the player's left hand, last of all: a prop over
-  -- the world drawn with real depth, so leaning it into a wall still
-  -- occludes honestly. Its frame only exists while a session is live and
-  -- the left hand is tracked (VR.lua sets it), so every flat frame skips
-  -- this in one field read. No wireframe and no glass, like the cast:
-  -- the device is a drawing riding the scene, not part of the terrain.
-  if Pokedex.frame then
-    Voxel3D.glass(false)
-    Voxel3D.seams(false)
-    Pokedex.draw()
-    Voxel3D.seams(true)
-    Voxel3D.glass(true)
-  end
-
-  end   -- drawScene
-
-  if not eyes then
-    if not Voxel3D.beginScene(w, h, cx, cy, vw, vh, skyFor(state.map)) then
-      return nil
-    end
-    drawScene()
-    return Voxel3D.endScene()
-  end
-
-  -- The VR frame: the same scene once per eye, each into its own named
-  -- canvas slot under its own placed camera. `adopt` hands the eye's
-  -- record to FirstPerson as the live rig, which is what turns the
-  -- billboards toward THIS eye in first person (cardBlend keys on rig
-  -- identity -- see FirstPerson) and leaves them leaning in the diorama,
-  -- where the blend is zero.
-  local out = {}
-  for i, eye in ipairs(eyes) do
-    Voxel3D.camera = eye.camera
-    if eye.adopt then FirstPerson.adoptVReye(eye.camera) end
-    if not Voxel3D.beginScene(eye.w, eye.h, cx, cy, vw, vh,
-                              skyFor(state.map), eye.slot) then
-      return nil
-    end
-    drawScene()
-    out[i] = Voxel3D.endScene()
-  end
-  return out
+  return Voxel3D.endScene()
 end
 
 return VoxelScene

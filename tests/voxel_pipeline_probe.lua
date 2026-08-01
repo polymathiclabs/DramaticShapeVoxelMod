@@ -26,9 +26,9 @@ return function(game)
   print("[probe] voxel available:",
         defs.voxel and defs.voxel.available and defs.voxel.available())
 
-  -- press 6 exactly like the player
-  game:keypressed("6")
-  print("[probe] after key6 level:", Pipelines.level("voxel"),
+-- press 3 exactly like the player (the voxel mode owns key 3)
+game:keypressed("3")
+  print("[probe] after key3 level:", Pipelines.level("voxel"),
         "saved:", game.save.options.pipelines
                   and game.save.options.pipelines.voxel,
         "tilt:", game.save.options.tilt)
@@ -40,24 +40,24 @@ return function(game)
   U.shot(game, DIR .. "/pipeline_1_voxel15.png")
 
   for _, level in ipairs({ 2, 3 }) do
-    game:keypressed("6")
+    game:keypressed("3")
     U.wait(25)
     print(("[probe] voxel level %d -> override %s")
       :format(Pipelines.level("voxel"), tostring(game.renderer.worldOverride)))
     U.shot(game, DIR .. ("/pipeline_1_voxel%d.png"):format(level))
   end
 
-  -- tilt-shift ladder over the diorama
+  -- tilt-shift ladder over the diorama (key 6)
   for _, level in ipairs({ 1, 2, 3 }) do
-    game:keypressed("9")
+    game:keypressed("6")
     U.wait(20)
     print(("[probe] t-shift level %d"):format(Pipelines.level("tiltshift")))
     U.shot(game, DIR .. ("/pipeline_2_tshift%d.png"):format(level))
   end
 
   -- and back off: the world must return to the flat draw, not stay stuck
-  game:keypressed("9")
   game:keypressed("6")
+  game:keypressed("3")
   U.wait(30)
   print("[probe] back off -- voxel:", Pipelines.level("voxel"),
         "override:", tostring(game.renderer.worldOverride))
