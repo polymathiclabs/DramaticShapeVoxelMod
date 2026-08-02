@@ -316,7 +316,13 @@ local function projectedHudRect(side, source, shot, scale)
   local mark = shot[side]
   if not (mark and mark[1] and mark[2]) then return nil end
   local s = shot.scale
-  local w, h = source[3] * s * scale, source[4] * s * scale
+  -- The HUD texture contains the original 8x8 pixel glyphs. Drawing it at a
+  -- fractional world scale makes a glyph column alternate between one and
+  -- two output pixels, which is especially visible in the names and HP bars.
+  -- Keep the intended compact size as closely as possible while ensuring
+  -- every source pixel maps to a whole number of output pixels.
+  local pixelScale = math.max(1, math.floor(s * scale + 0.5))
+  local w, h = source[3] * pixelScale, source[4] * pixelScale
   local lift
   if shot.pov then
     lift = side == "enemy" and OverworldBattle.HUD_LIFT_ENEMY_POV
@@ -333,6 +339,8 @@ local function projectedHudRect(side, source, shot, scale)
   local y = my - h - gap
   x = clamp(x, margin, shot.pw - w - margin)
   y = clamp(y, margin, shot.ph - h - margin)
+  x = math.floor(x + 0.5)
+  y = math.floor(y + 0.5)
   return { x, y, w, h }
 end
 
@@ -348,7 +356,8 @@ local function alignPlayerBelowEnemy(player, enemy, shot)
   local desired = enemy[2] + enemy[4] + gap
   local margin = OverworldBattle.HUD_MARGIN * shot.scale
   local top = math.min(player[2], desired)
-  player[2] = clamp(top, margin, shot.ph - player[4] - margin)
+  player[2] = math.floor(clamp(top, margin, shot.ph - player[4] - margin)
+                          + 0.5)
 end
 
 function OverworldBattle.snapRects(shot)
@@ -1349,6 +1358,7 @@ function OverworldBattle.snapHUDs(battle, shot)
   local ok, err = pcall(function()
     g.setCanvas(shot.canvas)
     g.setBlendMode("alpha")
+    if layer.setFilter then layer:setFilter("nearest", "nearest") end
     for _, rect in pairs(live) do BattleHud.panel(rect, shot, dark, true) end
     g.setColor(1, 1, 1, 1)
     for side, band in pairs(OverworldBattle.HUD_BAND) do

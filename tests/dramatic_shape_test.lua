@@ -2487,9 +2487,17 @@ local hudShot = {
 local hudRects, bands = Battles.snapRects(hudShot)
 local hudRect = Battles.HUD_RECT
 local hudScale = Battles.HUD_SCALE
+local function hudPixelScale(worldScale, desiredScale)
+  return math.max(1, math.floor(worldScale * desiredScale + 0.5))
+end
 
 local function near(a, b, label)
   T.check(math.abs(a - b) < 1e-9, label)
+end
+
+local function wholePosition(rect, label)
+  T.check(rect[1] == math.floor(rect[1])
+          and rect[2] == math.floor(rect[2]), label)
 end
 
 near(hudRects.enemy[1] + hudRects.enemy[3] / 2,
@@ -2514,10 +2522,24 @@ near(hudShot.ly + hudShot.enemy[2] * hudShot.scale
      (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY) * hudShot.scale,
      "the foe's panel is lifted farther from the Pokemon")
 
-near(hudRects.enemy[3], hudRect.enemy[3] * hudShot.scale * hudScale,
-     "the foe's status window is reduced in the world")
-near(hudRects.player[4], hudRect.player[4] * hudShot.scale * hudScale,
-     "the player's status window keeps the same reduced scale")
+near(hudRects.enemy[3], hudRect.enemy[3]
+       * hudPixelScale(hudShot.scale, hudScale),
+     "the foe's status window uses whole world pixels")
+near(hudRects.enemy[4], hudRect.enemy[4]
+       * hudPixelScale(hudShot.scale, hudScale),
+     "the foe's status window keeps its whole-pixel height")
+near(hudRects.player[3], hudRect.player[3]
+       * hudPixelScale(hudShot.scale, hudScale),
+     "the player's status window uses whole world pixels")
+near(hudRects.player[4], hudRect.player[4]
+       * hudPixelScale(hudShot.scale, hudScale),
+     "the player's status window keeps its whole-pixel height")
+wholePosition(hudRects.enemy, "the foe's status window lands on whole pixels")
+wholePosition(hudRects.player,
+              "the player's status window lands on whole pixels")
+wholePosition(bands.enemy, "the foe's fallback HUD lands on whole pixels")
+wholePosition(bands.player,
+              "the player's fallback HUD lands on whole pixels")
 
 -- POV is a separate battle camera, so it gets its own compact scale and a
 -- short lift. This keeps the card near a distant first-person Pokemon rather
@@ -2528,11 +2550,42 @@ local povShot = {
   enemy = hudShot.enemy, player = hudShot.player,
 }
 local povRects = Battles.snapRects(povShot)
-near(povRects.enemy[3], hudRect.enemy[3] * povShot.scale
-       * Battles.HUD_SCALE_POV,
-     "POV reduces the foe's status window for the closer camera")
-T.check(povRects.enemy[3] < hudRects.enemy[3],
-  "POV status windows are smaller than the composed battle windows")
+near(povRects.enemy[3], hudRect.enemy[3]
+       * hudPixelScale(povShot.scale, Battles.HUD_SCALE_POV),
+     "POV status window uses whole world pixels")
+near(povRects.enemy[4], hudRect.enemy[4]
+       * hudPixelScale(povShot.scale, Battles.HUD_SCALE_POV),
+     "POV foe status window keeps its whole-pixel height")
+near(povRects.player[3], hudRect.player[3]
+       * hudPixelScale(povShot.scale, Battles.HUD_SCALE_POV),
+     "POV player status window uses whole world pixels")
+near(povRects.player[4], hudRect.player[4]
+       * hudPixelScale(povShot.scale, Battles.HUD_SCALE_POV),
+     "POV player status window keeps its whole-pixel height")
+wholePosition(povRects.enemy,
+              "POV foe status window lands on whole pixels")
+wholePosition(povRects.player,
+              "POV player status window lands on whole pixels")
+T.check(povRects.enemy[3] <= hudRects.enemy[3],
+  "POV status windows do not exceed the composed battle windows")
+
+-- A fractional HUD scale exercises the quantizer rather than only the common
+-- integer-fit sizes above.
+local quantizedShot = {
+  lx = 0, ly = 0, scale = 5, pw = 800, ph = 600,
+  enemy = hudShot.enemy, player = hudShot.player,
+}
+local quantizedRects = Battles.snapRects(quantizedShot)
+near(quantizedRects.enemy[3], hudRect.enemy[3]
+       * hudPixelScale(quantizedShot.scale, hudScale),
+     "whole-pixel scaling stays stable at another world scale")
+near(quantizedRects.enemy[3], hudRect.enemy[3] * 2,
+     "the normal HUD rounds to the nearest integer scale")
+near(Battles.snapRects({
+  lx = 0, ly = 0, scale = 5, pw = 800, ph = 600, pov = true,
+  enemy = hudShot.enemy, player = hudShot.player,
+})["enemy"][3], hudRect.enemy[3],
+     "the POV HUD remains compact at another world scale")
 near(povShot.ly + povShot.enemy[2] * povShot.scale
        - (povRects.enemy[2] + povRects.enemy[4]),
      (Battles.HUD_GAP + Battles.HUD_LIFT_ENEMY_POV) * povShot.scale,
