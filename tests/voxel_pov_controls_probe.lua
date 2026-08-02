@@ -6,6 +6,7 @@ return function(game)
     game.input.state[btn] = true
     U.wait(frames)
     game.input.state[btn] = false
+    game.input.pressQueue = {}
   end
   local Pipelines = require("src.render.Pipelines")
   local handle = game.mods.exports["DRAMATIC_SHAPE"]
@@ -92,6 +93,9 @@ return function(game)
   local backX, backY = player.cellX, player.cellY
   U.hold(game, "down", 20)
   while player.moving do U.wait(1) end
+  -- Let the idle overworld poll re-arm the original turn-in-place gate before
+  -- checking that the 2D fallback still has classic controls.
+  U.wait(1)
   assert(player.facing == "right", "POV reverse movement changed facing")
   assert(player.cellX < backX, "POV reverse movement did not oppose facing")
   assert(player.cellY == backY, "POV reverse movement moved on the old axis")
