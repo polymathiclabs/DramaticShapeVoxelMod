@@ -314,6 +314,39 @@ local function copyBattleShotToEye(target, source)
   return true
 end
 
+-- The widescreen battle layout is rendered on a 304x144 source surface, so
+-- its integer source scale can be smaller than the classic 160x144 dialogue
+-- surface. Applying the same headset shrink factor to both therefore makes
+-- battle glyphs physically smaller and harder to read. Compensate only for
+-- that source-resolution difference; overworld dialogue remains at the
+-- deliberately compact 20% panel size.
+local function setVrUiComposite(Renderer, placement)
+  local ui = Renderer and Renderer.uiComposite
+  if not ui then return end
+
+  local scale = 0.20
+  if placement == "battle" then
+    local pw, ph
+    if love.graphics.getPixelDimensions then
+      pw, ph = love.graphics.getPixelDimensions()
+    end
+    if type(pw) ~= "number" or type(ph) ~= "number"
+        or pw <= 0 or ph <= 0 then
+      pw, ph = love.graphics.getDimensions()
+    end
+    local classicFit = math.max(1, math.floor(math.min(pw / 160, ph / 144)))
+    local sourceFit = math.max(1, math.floor(
+      (ui.sx or 1) * (ui.dpiX or 1) + 0.5))
+    scale = 0.20 * classicFit / sourceFit
+    -- Keep unusual small desktop windows from making the battle panel
+    -- dominate the headset view while still restoring readable glyphs.
+    scale = math.max(0.20, math.min(0.34, scale))
+  end
+
+  ui.vrScale = scale
+  ui.vrPlacement = placement
+end
+
 -- Renderer:endFrame has already drawn the classic UI into the VR output
 -- canvas by the time the application calls this. Copy that transparent UI
 -- layer onto each eye's world canvas, then submit the completed pair. This
@@ -346,8 +379,7 @@ local function finishStereo()
   -- command box toward the lower part of the view with a comfortable bottom
   -- margin. Renderer:endFrame has already captured this frame's UI canvas.
   if Renderer.uiComposite then
-    Renderer.uiComposite.vrScale = 0.20
-    Renderer.uiComposite.vrPlacement = shot and "battle" or "center"
+    setVrUiComposite(Renderer, shot and "battle" or "center")
   end
   local okLeft, leftDone = pcall(Renderer.compositeUi, Renderer, pending.left)
   local okRight, rightDone = pcall(Renderer.compositeUi, Renderer, pending.right)
@@ -376,8 +408,7 @@ local function finishVRFallback(target)
 
   local Renderer = require("src.render.Renderer")
   if not Renderer.uiComposite then return false end
-  Renderer.uiComposite.vrScale = 0.20
-  Renderer.uiComposite.vrPlacement = "battle"
+  setVrUiComposite(Renderer, "battle")
   local ok, done = pcall(Renderer.compositeUi, Renderer, target)
   return ok and done == true
 end
