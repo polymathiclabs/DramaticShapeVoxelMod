@@ -106,9 +106,82 @@ local FirstPerson = V.require("FirstPerson")
 local FreeMove = V.require("FreeMove")
 local Minimap = V.require("Minimap")
 
+-- CAMERA is the public view switch. The old VOXEL ladder still owns the
+-- diorama's pitch and remains useful for ABOVE and 3RD, but it must not be a
+-- second hidden switch that users have to align with CAMERA before POV works.
+-- Keep the last non-POV choice so stepping out of POV restores the view and
+-- the voxel pitch the player had before entering it.
+local CAMERA_INDEX = { above = 1, third = 2, pov = 3 }
+local classicCamera = CameraMode.mode() ~= "pov" and CameraMode.mode() or "above"
+local classicVoxelLevel = 5
+local syncedVoxelLevel = nil
+local syncingViewMode = false
+
+local function currentGame(game)
+  if game then return game end
+  local ok, Game = pcall(require, "src.core.Game")
+  return ok and Game or nil
+end
+
+local function syncVoxelOption(game)
+  game = currentGame(game)
+  local opts = game and game.save and game.save.options
+  if opts then Pipelines.syncOptions(opts) end
+end
+
+local function setVoxelForView(game, level)
+  Pipelines.setLevel("voxel", level)
+  syncVoxelOption(game)
+end
+
+local function syncViewMode(game, source)
+  if syncingViewMode then return end
+  syncingViewMode = true
+  game = currentGame(game)
+
+  local mode = CameraMode.mode()
+  local level = Pipelines.level("voxel")
+  if mode == "pov" then
+    if level ~= Voxel.FP_LEVEL then
+      local leavingByChange = source == "hotkey"
+                            or syncedVoxelLevel == Voxel.FP_LEVEL
+      if leavingByChange then
+        -- The 3 key is the explicit legacy way to leave POV. Keep its
+        -- requested rung and return to the last classic camera.
+        if level > 0 then classicVoxelLevel = level end
+        CameraMode.setting:setIndex(CAMERA_INDEX[classicCamera] or 1, game)
+      else
+        -- CAMERA was changed to POV. Preserve the current classic rung and
+        -- enter the first-person rung as one atomic view change. This also
+        -- makes direct programmatic selection and old saved combinations safe.
+        if level > 0 then classicVoxelLevel = level end
+        setVoxelForView(game, Voxel.FP_LEVEL)
+      end
+    end
+  else
+    classicCamera = mode
+    if level == Voxel.FP_LEVEL then
+      if source == "camera" then
+        -- CAMERA was changed away from POV. Restore the last classic rung.
+        setVoxelForView(game, classicVoxelLevel > 0
+                                and classicVoxelLevel ~= Voxel.FP_LEVEL
+                                and classicVoxelLevel or 5)
+      else
+        -- The legacy VOXEL rung was selected directly. Make the public
+        -- CAMERA label agree with the first-person renderer.
+        CameraMode.setting:setIndex(3, game)
+      end
+    end
+  end
+  syncedVoxelLevel = Pipelines.level("voxel")
+  syncingViewMode = false
+end
+
 -- The regular Options screen uses ModSetting:row(), rather than the mod
--- manager event used by the settings page. Re-anchor VR for that path too.
-CameraMode.setting.onChanged = function()
+-- manager event used by the settings page. Re-anchor VR for that path too,
+-- and keep the first-person/free-movement switch coherent at the same time.
+CameraMode.setting.onChanged = function(game)
+  syncViewMode(game, "camera")
   pcall(Runtime.recenter)
 end
 
@@ -467,6 +540,10 @@ mod.content.render_pipelines:register("voxel", {
   -- pump slice -- so stepping out of a door lands on terrain that is
   -- already there instead of a flat flash.
   update = function(dt, level)
+    -- Reconcile before the camera tick so a mode change cannot spend one
+    -- frame showing the POV label while the old orbit/free-walk gate is live.
+    syncViewMode()
+    level = Pipelines.level("voxel")
     -- FULL is a preset, so it is applied ON THE PRESS rather than held every
     -- frame: it SETS the other rows and then leaves them alone. Holding them
     -- would make the zoom keys and the wheel dead while the mode was on, and
@@ -658,7 +735,9 @@ end
 local SETTINGS = {
   { CameraMode.setting,
     "Choose the voxel view: ABOVE keeps the diorama, 3RD follows behind "
-    .. "the trainer, and POV places the camera at the trainer's eyes.",
+    .. "the trainer, and POV places the camera at the trainer's eyes and "
+    .. "enables free movement. Selecting POV automatically enables the "
+    .. "voxel first-person pass; ABOVE and 3RD restore tile movement.",
     full = true },
   { VoxelGrid.setting, "One-pixel wireframe along every voxel edge." },
   { WorldCurve.setting,
@@ -684,7 +763,7 @@ local SETTINGS = {
     when = function() return stagedBattles() end, full = true },
   { Minimap.setting,
     "Show a small classic 2D view of the current map in the lower-left "
-    .. "corner while the voxel world is active.", full = true },
+    .. "corner while the voxel world is active. ON by default.", full = true },
   { DayNight.setting,
     "What time it is outdoors: pin the sky to DAY, NIGHT, DUSK or DAWN, "
     .. "let CYCLE run it -- ten minutes of sun, ten of moon, with the "
@@ -757,6 +836,7 @@ do
     -- is persistent, so the selected view naturally survives battle exit.
     if key == "v" and OverworldBattle.active() then
       CameraMode.setting:cycle(self)
+      syncViewMode(self, "camera")
       pcall(Runtime.recenter)
       return
     end
@@ -780,6 +860,7 @@ do
         end
         if stepped then
           Pipelines.syncOptions(self.save.options)
+          if key == "3" then syncViewMode(self, "hotkey") end
           -- 3 is the key that used to turn TILT on and sits next to the one
           -- that used to turn GBC FX on, and this mod has taken both away.
           -- A player who left either running before enabling the mod would
@@ -808,7 +889,10 @@ do
         -- when the fight starts, so flipping it from inside one would be a
         -- switch that appeared to do nothing.
         claim:cycle(self)
-        if claim == CameraMode.setting then pcall(Runtime.recenter) end
+        if claim == CameraMode.setting then
+          syncViewMode(self, "camera")
+          pcall(Runtime.recenter)
+        end
         -- 8 is one of the two ways staged battles get switched on, and they
         -- pin BATTLE LAYOUT to OG (see the rows hook). The other keys
         -- parameterise the pass and leave the layout alone; the guard answers
@@ -951,6 +1035,7 @@ mod.events:on("mod.options_changed", function(payload)
     if payload.key == entry[1].key then entry[1]:sync(payload.value) end
   end
   if payload.key == CameraMode.setting.key then pcall(Runtime.recenter) end
+  syncViewMode(nil, payload.key == CameraMode.setting.key and "camera" or "pipeline")
   -- 3D-BTL switched on from the manager's page pins BATTLE LAYOUT exactly as
   -- the OPTIONS row does. The manager persists its own value; this is the one
   -- that has to follow it.

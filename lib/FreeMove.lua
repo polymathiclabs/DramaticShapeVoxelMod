@@ -62,6 +62,31 @@ FreeMove.MARKER_LIFT = 0.18
 
 local EPS = 0.01
 
+-- Keyboard A/D (and the corresponding left/right action from a pad) turn the
+-- first-person heading instead of strafing. The pending edge is kept through
+-- a continuous crossing so a turn pressed while W is held applies as soon as
+-- the player is idle, matching the grid game's input timing.
+local function turnLook(dir)
+  FirstPerson.lookBy(dir == "right" and -math.pi / 2 or math.pi / 2, 0)
+end
+
+local function queueTurn(input, player)
+  if input:wasPressed("left") then
+    player.povTurnPending = "left"
+  elseif input:wasPressed("right") then
+    player.povTurnPending = "right"
+  end
+end
+
+local function applyQueuedTurn(input, player)
+  local dir = player.povTurnPending
+  if not dir or not input:isDown(dir) then return false end
+  turnLook(dir)
+  player.facing = FirstPerson.compassFacing()
+  player.povTurnPending = nil
+  return true
+end
+
 -- the free position (player centre, world px) and the px/py we last wrote
 -- -- if they differ from the player's, something else (a warp, a script)
 -- moved them, and the free walk adopts rather than fights
@@ -318,6 +343,10 @@ end
 
 function FreeMove.tick(state)
   local p = state.player
+  local Game = require("src.core.Game")
+  local input = Game.input
+
+  queueTurn(input, p)
 
   -- a grid move is animating -- a ledge hop, a spinner slide, a scripted
   -- walk -- or a cutscene owns the player: stand aside, adopt the result
@@ -325,10 +354,8 @@ function FreeMove.tick(state)
     FreeMove.drop()
     return
   end
+  if applyQueuedTurn(input, p) then return end
   if not pos or p.px ~= lastPx or p.py ~= lastPy then adopt(p) end
-
-  local Game = require("src.core.Game")
-  local input = Game.input
 
   -- the head is the facing: what A talks to, what the sun's card shows,
   -- which way a bonk points

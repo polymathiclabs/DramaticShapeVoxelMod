@@ -48,8 +48,8 @@ menu.
 
 | control | does |
 | --- | --- |
-| `3`, or the **VOXEL** options row | OFF → 15 → 35 → 50 → 75 → OFF (camera pitch) |
-| `V`, or the **CAMERA** options row | ABOVE / 3RD / POV — switch between the elevated diorama, behind-trainer third person, and character-height first person |
+| `3`, or the **VOXEL** options row | OFF → 15 → 35 → 50 → 75 → POV (FREE) — camera pitch and the compatibility first-person rung; the **CAMERA** row is the clear way to choose views |
+| `V`, or the **CAMERA** options row | ABOVE / 3RD / POV (FREE) — switch between the elevated diorama, behind-trainer third person, and character-height first person. POV automatically enables the voxel first-person pass and free movement; ABOVE and 3RD restore tile movement |
 | `5`, or the **V-GRID** options row | OFF / ON — a one-pixel wireframe on every voxel |
 | `6`, or the **T-SHIFT** options row | OFF → 1 → 2 → 3 → OFF (miniature blur) |
 | `7`, or the **V-CURVE** options row | OFF → 1 → 2 → 3 — bend the world over the horizon |
@@ -62,7 +62,7 @@ menu.
 **3D-BTL** is on by default and is independent of **VOXEL**: battles draw
 on the world whether or not the free-roam camera is pitched over.
 
-The **MINIMAP** row is an optional lower-left panel that reuses the original
+The **MINIMAP** row is an ON-by-default lower-left panel that reuses the original
 2D tile renderer for the current map and follows the player. It is available
 in the mod manager and the normal OPTIONS menu, including while FULL is
 selected.

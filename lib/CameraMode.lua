@@ -16,7 +16,7 @@ local CameraMode = {}
 CameraMode.KEY = "camera"
 CameraMode.LABEL = "CAMERA"
 CameraMode.MODES = { "above", "third", "pov" }
-CameraMode.LABELS = { "ABOVE", "3RD", "POV" }
+CameraMode.LABELS = { "ABOVE", "3RD", "POV (FREE)" }
 
 CameraMode.setting = ModSetting.new(CameraMode.KEY, CameraMode.LABEL,
                                     CameraMode.MODES, CameraMode.LABELS)

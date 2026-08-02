@@ -47,6 +47,7 @@ local Mat4 = V.require("Mat4")
 local Voxel = V.require("VoxelState")
 local Voxel3D = V.require("Voxel3D")
 local WorldCurve = V.require("WorldCurve")
+local CameraMode = V.require("CameraMode")
 
 local FirstPerson = {}
 
@@ -134,9 +135,12 @@ end
 
 -- ------- gates
 
--- Whether the 1ST rung is selected and the 3D pass can carry it.
+-- Whether the user selected the one first-person view and the 3D pass can
+-- carry it. CameraMode is the public switch; the old 1ST voxel rung remains
+-- a compatible storage value, but no longer has to be lined up by hand with
+-- a second setting before free movement starts.
 function FirstPerson.engaged()
-  return Voxel.isFirstPerson(Voxel.level) and Voxel3D.available()
+  return CameraMode.isPOV() and Voxel.active() and Voxel3D.available()
 end
 
 -- Whether first person should be READING the player's inputs right now:
@@ -292,8 +296,10 @@ function FirstPerson.moveVector()
   end
 
   if input then
-    local mx = (input:isDown("right") and 1 or 0)
-               - (input:isDown("left") and 1 or 0)
+    -- Keyboard A/D are turn-in-place controls in POV. Analog sticks still
+    -- use both axes above, but the digital side keys must not keep sliding
+    -- the player sideways after their one turn edge has been consumed.
+    local mx = 0
     local mz = (input:isDown("up") and 1 or 0)
                - (input:isDown("down") and 1 or 0)
     if mx ~= 0 or mz ~= 0 then
@@ -358,7 +364,11 @@ function FirstPerson.update(dt)
   -- the window has focus, released the moment either ends. Checked against
   -- the live mode rather than toggled on edges, so a capture lost to the
   -- OS (alt-tab) re-arms itself on the next focused frame.
-  local wantCapture = engagedNow
+  -- Only capture the mouse while the overworld itself is driving. Capturing
+  -- it over Options, dialogue or a battle makes those screens look broken
+  -- and prevents a desktop player from interacting with their controls.
+  local driving = FirstPerson.driving()
+  local wantCapture = driving
   if wantCapture and love.window and love.window.hasFocus then
     local okF, focus = pcall(love.window.hasFocus)
     wantCapture = okF and focus or false
@@ -370,8 +380,6 @@ function FirstPerson.update(dt)
     end
     captured = wantCapture
   end
-
-  local driving = FirstPerson.driving()
 
   -- The mouse's counts, accumulated by the wrapped handler since the last
   -- tick; dropped unread while something else owns the screen.

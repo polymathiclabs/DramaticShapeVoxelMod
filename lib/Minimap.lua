@@ -15,7 +15,7 @@ local Minimap = {}
 Minimap.KEY = "minimap"
 Minimap.LABEL = "MINIMAP"
 Minimap.setting = ModSetting.new(Minimap.KEY, Minimap.LABEL,
-                                 { false, true }, { "OFF", "ON" })
+                                 { true, false }, { "ON", "OFF" })
 
 Minimap.SOURCE_W = 160
 Minimap.SOURCE_H = 144
