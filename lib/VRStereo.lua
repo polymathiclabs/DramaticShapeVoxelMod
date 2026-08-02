@@ -12,6 +12,7 @@ local Voxel3D = V.require("Voxel3D")
 local VoxelScene = V.require("VoxelScene")
 local ShadowMap = V.require("ShadowMap")
 local CameraMode = V.require("CameraMode")
+local FirstPerson = V.require("FirstPerson")
 
 local VRStereo = {
   LEFT_SLOT = "vr-left",
@@ -96,6 +97,10 @@ function VRStereo.render(state, w, h, vw, vh, paletteFor, view, slot, stereoStat
   local previousCamera = Voxel3D.camera
   local previousBeginScene = Voxel3D.beginScene
   Voxel3D.camera = camera
+  -- Let FirstPerson's billboard and marker code read this eye, while its
+  -- frame builder preserves the runtime camera instead of replacing it with
+  -- the desktop rig. The adoption is scoped to this eye and cleared below.
+  if FirstPerson.engaged() then FirstPerson.adoptVReye(camera) end
   Voxel3D.beginScene = function(sceneW, sceneH, cx, cy, viewW, viewH, sky)
     return previousBeginScene(sceneW, sceneH, cx, cy, viewW, viewH, sky,
                               slot)
@@ -106,6 +111,7 @@ function VRStereo.render(state, w, h, vw, vh, paletteFor, view, slot, stereoStat
 
   Voxel3D.beginScene = previousBeginScene
   Voxel3D.camera = previousCamera
+  FirstPerson.adoptVReye(nil)
   if not ok then
     -- A failed scene may have opened a pass before the driver error. Closing
     -- it keeps the subsequent single-eye fallback's graphics state sane.

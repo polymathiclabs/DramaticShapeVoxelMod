@@ -103,6 +103,10 @@ return function(game)
   -- POV must not change controls once the voxel pipeline falls back to 2D.
   local fallbackX, fallbackY = player.cellX, player.cellY
   Pipelines.setLevel("voxel", 0)
+  U.wait(3)
+  assert(math.abs(player.px - player.cellX * 16) < 0.001
+         and math.abs(player.py - player.cellY * 16) < 0.001,
+         "leaving POV did not snap the visible position to its logical cell")
   U.tap(game, "left")
   U.wait(3)
   assert(player.facing == "left", "2D fallback kept POV turning active")

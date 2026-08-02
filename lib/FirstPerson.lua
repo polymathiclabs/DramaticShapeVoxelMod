@@ -114,6 +114,7 @@ local captured = false                -- mouse relative mode engaged by us
 -- billboard yaw, the frame remap) can ask by identity rather than by mode
 -- -- the battle's own placed camera must never read as first person
 local rig = nil
+local vrRig = nil                  -- the per-eye camera currently adopted by VR
 
 local FACING_ANGLE = {
   down = 0,
@@ -171,6 +172,7 @@ end
 -- In the diorama (blend 0) adoption is inert: cardBlend still reports
 -- zero and the cards keep their lean.
 function FirstPerson.adoptVReye(record)
+  vrRig = record
   rig = record
 end
 
@@ -424,8 +426,10 @@ local lastEye = nil                   -- frozen head pose for player-less frames
 function FirstPerson.frame(me, cx, cy, vw, vh)
   local b = FirstPerson.blend
   if b <= 0 then
-    if rig and Voxel3D.camera == rig then Voxel3D.camera = nil end
-    rig = nil
+    if not vrRig then
+      if rig and Voxel3D.camera == rig then Voxel3D.camera = nil end
+      rig = nil
+    end
     return nil
   end
   local e = ease(b)
@@ -461,14 +465,23 @@ function FirstPerson.frame(me, cx, cy, vw, vh)
   -- Voxel3D fall back to the setting
   local k = WorldCurve.k(vh) * (1 - e)
 
-  rig = {
+  local desktopRig = {
     eye = mix(oEye, head),
     focus = mix(oFocus, fpFocus),
     fov = oFov + (FirstPerson.FOV - oFov) * e,
     up = up,
     curve = k,
   }
-  Voxel3D.camera = rig
+  -- VRStereo installs a distinct OpenXR camera before asking the scene to
+  -- render. Preserve that record, including its per-eye IPD and head pose;
+  -- the desktop rig remains the fallback for the ordinary window path.
+  local usingVREye = vrRig and Voxel3D.camera == vrRig
+  if usingVREye then
+    rig = vrRig
+  else
+    rig = desktopRig
+    Voxel3D.camera = rig
+  end
 
   -- the scene centre walks from the orbit's view centre to the head, so
   -- the curve's focus, the depth reference and the glint's travel follow

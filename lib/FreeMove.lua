@@ -57,6 +57,8 @@ FreeMove.RADIUS = 5.5
 -- game's own.
 FreeMove.WALK = 1.0
 FreeMove.BIKE = 2.0
+FreeMove.MARKER_MARGIN = 1.5
+FreeMove.MARKER_LIFT = 0.18
 
 local EPS = 0.01
 
@@ -78,6 +80,65 @@ end
 -- named for the suite: the module's live position, nil while dropped
 function FreeMove._pos()
   return pos
+end
+
+-- The visible footprint of the logical cell. Keeping this arithmetic pure
+-- makes the tile illusion easy to test and keeps the renderer independent
+-- of the player's continuous position inside the cell.
+function FreeMove.markerRect(cellX, cellY)
+  local m = FreeMove.MARKER_MARGIN
+  return {
+    left = cellX * 16 + m,
+    top = cellY * 16 + m,
+    right = (cellX + 1) * 16 - m,
+    bottom = (cellY + 1) * 16 - m,
+  }
+end
+
+FreeMove._markerRect = FreeMove.markerRect
+
+-- Draw a subtle outline around the tile the game currently considers the
+-- player's cell. This is intentionally a 2D overlay projected from the
+-- ground plane: it is rendered once per VR eye by the existing world-FX
+-- hook, does not z-fight with the terrain, and remains visible while the
+-- continuous camera position travels inside the tile.
+function FreeMove.drawMarker(state)
+  if not FirstPerson.driving() then return end
+  if not (state and state.map and state.player
+          and state.player.cellX and state.player.cellY) then return end
+  if not (love.graphics and V.require("Voxel3D").project) then return end
+
+  local VoxelScene = V.require("VoxelScene")
+  local Voxel3D = V.require("Voxel3D")
+  local p = state.player
+  local rect = FreeMove.markerRect(p.cellX, p.cellY)
+  local ground = VoxelScene.groundAt(state.map, p.cellX, p.cellY)
+  local points = {}
+  local function corner(x, z)
+    local sx, sy = Voxel3D.project(x, ground + FreeMove.MARKER_LIFT, z)
+    if not sx or not sy then return false end
+    points[#points + 1] = sx
+    points[#points + 1] = sy
+    return true
+  end
+
+  if not (corner(rect.left, rect.top)
+          and corner(rect.right, rect.top)
+          and corner(rect.right, rect.bottom)
+          and corner(rect.left, rect.bottom)) then
+    return
+  end
+
+  love.graphics.push("all")
+  love.graphics.setColor(0.20, 0.88, 1.00, 0.12)
+  love.graphics.polygon("fill", points[1], points[2], points[3], points[4],
+                        points[5], points[6], points[7], points[8])
+  love.graphics.setColor(0.28, 0.94, 1.00, 0.82)
+  love.graphics.setLineWidth(2)
+  love.graphics.line(points[1], points[2], points[3], points[4],
+                     points[5], points[6], points[7], points[8],
+                     points[1], points[2])
+  love.graphics.pop()
 end
 
 -- ------- the per-cell verdict
@@ -172,6 +233,45 @@ local function slideZ(state, p, dz)
   end
   pos.z = nz
   return hit
+end
+
+-- Reduce a continuous vector to the engine's four-direction vocabulary for
+-- step-arrival effects. The physical position remains diagonal and smooth;
+-- only the legacy trigger that needs a compass direction uses this value.
+local function movementDirection(wx, wz, fallback)
+  if math.abs(wx) > math.abs(wz) then
+    return wx > 0 and "right" or "left"
+  elseif math.abs(wz) > 0 then
+    return wz > 0 and "down" or "up"
+  end
+  return fallback
+end
+
+local function crossedBoundaries(dx, dz)
+  local crossed = {}
+  local function add(dir, travel)
+    if travel >= -EPS and travel <= 1 + EPS then
+      crossed[#crossed + 1] = { dir = dir, travel = travel }
+    end
+  end
+  if dx > 0 then
+    local edge = (math.floor(pos.x / 16) + 1) * 16
+    add("right", (edge - pos.x) / dx)
+  elseif dx < 0 then
+    local edge = math.floor(pos.x / 16) * 16
+    add("left", (edge - pos.x) / dx)
+  end
+  if dz > 0 then
+    local edge = (math.floor(pos.z / 16) + 1) * 16
+    add("down", (edge - pos.z) / dz)
+  elseif dz < 0 then
+    local edge = math.floor(pos.z / 16) * 16
+    add("up", (edge - pos.z) / dz)
+  end
+  table.sort(crossed, function(a, b)
+    return a.travel < b.travel
+  end)
+  return crossed
 end
 
 -- ------- the blocked push
@@ -271,6 +371,21 @@ function FreeMove.tick(state)
   local speed = (Game.save and Game.save.onBike) and FreeMove.BIKE
                 or FreeMove.WALK
   local dx, dz = wx * speed, wz * speed
+  local moveDir = movementDirection(wx, wz, p.facing)
+  p.lastMoveDir = moveDir
+
+  -- Ledges are checked before ordinary movement in the engine. A ledge tile
+  -- is usually walkable, so waiting for blockedCell() would let a free walk
+  -- pass straight over it. Trigger the same two-cell hop on the frame that
+  -- the continuous body crosses the relevant boundary. Check every edge
+  -- crossed during the frame, in travel order, so an exact diagonal corner
+  -- cannot bypass a ledge on its non-dominant axis.
+  for _, crossing in ipairs(crossedBoundaries(dx, dz)) do
+    if crossing.dir == p.facing and state:checkLedgeHop(crossing.dir) then
+      FreeMove.drop()
+      return
+    end
+  end
 
   local hitX = slideX(state, p, dx)
   local hitZ = slideZ(state, p, dz)

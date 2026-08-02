@@ -25,6 +25,7 @@ local Sky = V.require("Sky")
 local Water = V.require("Water")
 local VoxelGrid = V.require("VoxelGrid")
 local DayNight = V.require("DayNight")
+local FirstPerson = V.require("FirstPerson")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
@@ -255,6 +256,18 @@ local function frameFor(def, facing, phase, flip)
   return frame, mirror
 end
 
+-- The flat sprite frames describe a pose as seen from the south. A
+-- first-person eye can stand anywhere, so once the camera has entered the
+-- player's head, remap each pose to the frame that eye would actually see.
+-- The battle camera uses the same placed-camera seam but is not the
+-- first-person rig, so cardBlend() keeps it on the ordinary path.
+local function viewFacing(p)
+  if FirstPerson.cardBlend() > 0.5 then
+    return FirstPerson.apparentFacing(p.facing, p.px + 8, p.py + 8)
+  end
+  return p.facing
+end
+
 -- FALLBACK ONLY (see castShadows below). Draw one entity's drop shadow as
 -- a decal: its current sprite frame as a single quad, flattened onto the
 -- ground along the sun line (Voxel3D.shadowMatrix). Runs inside
@@ -280,14 +293,12 @@ end
 -- figure would read as a second character.
 local function billboardMatrix(px, py, y, mirror)
   local Voxel = V.require("VoxelState")
-  local yaw = 0
-  if CameraMode.isPOV() and Voxel3D.eye then
-    yaw = math.atan2(Voxel3D.eye[1] - (px + 8),
-                     Voxel3D.eye[3] - (py + 8))
+  local b = FirstPerson.cardBlend()
+  local m = Mat4.translate(px + 8, y, py + 8)
+  if b > 0 then
+    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(px + 8, py + 8) * b))
   end
-  local pitch = CameraMode.isPOV() and 0 or (Voxel.angle - math.pi / 2)
-  local m = Mat4.mul(Mat4.translate(px + 8, y, py + 8),
-                     Mat4.mul(Mat4.rotateY(yaw), Mat4.rotateX(pitch)))
+  m = Mat4.mul(m, Mat4.rotateX((Voxel.angle - math.pi / 2) * (1 - b)))
   if mirror then m = Mat4.mul(m, Mat4.scale(-1, 1, 1)) end
   return Mat4.mul(m, Mat4.translate(-8, 0, 0))
 end
@@ -310,13 +321,15 @@ end
 local function figureMatrix(f, offX, offZ)
   local Voxel = V.require("VoxelState")
   local x, z = f.wx + (offX or 0), f.wz + (offZ or 0)
-  local yaw = 0
-  if CameraMode.isPOV() and Voxel3D.eye then
-    yaw = math.atan2(Voxel3D.eye[1] - x, Voxel3D.eye[3] - z)
+  local b = FirstPerson.cardBlend()
+  local m = Mat4.translate(x, f.y, z)
+  if b > 0 and f.w and f.w > 0 then
+    local half = f.w / 2
+    m = Mat4.mul(m, Mat4.translate(half, 0, 0))
+    m = Mat4.mul(m, Mat4.rotateY(FirstPerson.cardYaw(x + half, z) * b))
+    m = Mat4.mul(m, Mat4.translate(-half, 0, 0))
   end
-  local pitch = CameraMode.isPOV() and 0 or (Voxel.angle - math.pi / 2)
-  return Mat4.mul(Mat4.translate(x, f.y, z),
-                  Mat4.mul(Mat4.rotateY(yaw), Mat4.rotateX(pitch)))
+  return Mat4.mul(m, Mat4.rotateX((Voxel.angle - math.pi / 2) * (1 - b)))
 end
 
 -- What the sun sees: the same card UNLEANED and flattened, exactly as
@@ -388,7 +401,7 @@ VoxelScene.drawEntity = drawEntity
 -- mesh for it.
 local function drawGhost(p)
   local def = p.sprite.def
-  local frame, mirror = frameFor(def, p.facing, p.phase, p.flip)
+  local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip)
   local mesh = SpriteBillboards.shadowQuad(def, frame)
   if not mesh then return end
   local tex = p.sprite:resolveImage()
@@ -510,10 +523,7 @@ local function posesOf(state, spriteColors)
   end
   for _, e in ipairs(state.entities or {}) do
     local own = e == state.player
-    -- In POV the camera occupies the player's head, so drawing the player's
-    -- own card would put a full sprite directly in front of the lens.
-    if not (state.flyAnim and own)
-       and not (own and CameraMode.isPOV()) then
+    if not (state.flyAnim and own) then
       local sprite, vx, vy, facing, phase, flip = e:pose()
       posed[#posed + 1] = {
         sprite = sprite, px = vx, py = e.py,
@@ -521,7 +531,10 @@ local function posesOf(state, spriteColors)
         gh = groundAt(state.map, e.cellX, e.cellY),
         lift = e.py - vy, colors = colors,
       }
-      if e == state.player then me = posed[#posed] end
+      if e == state.player then
+        me = posed[#posed]
+        me.isPlayer = true
+      end
     end
   end
   return posed, me
@@ -588,9 +601,12 @@ local function drawCast(state, posed, atlasFor)
   -- drawEntity resolves the lean-over-the-wall-in-front case, and a
   -- character genuinely behind a building is far deeper and loses the
   -- test, so buildings and trees really occlude.
+  local hideMe = FirstPerson.hidePlayer()
   for _, p in ipairs(posed) do
-    drawEntity(p.sprite, p.px, p.py, p.facing, p.phase, p.flip, p.gh,
-               p.colors, p.lift)
+    if not (p.isPlayer and hideMe) then
+      drawEntity(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
+                 p.colors, p.lift)
+    end
   end
   -- back on for everything textured from the atlas again -- figures, grass
   -- and flowers all sample it, where the mask's coordinates are honest
@@ -704,6 +720,7 @@ local function shadowSignature(terrain, nbMesh, posed, cx, cy, vw, vh)
   -- few times a minute rather than every frame.
   put(math.floor(ShadowMap.KX * 128))
   put(math.floor(ShadowMap.KZ * 128))
+  put(FirstPerson.signature())
   put(tostring(terrain))
   for i = 1, #nbMesh do put(tostring(nbMesh[i])) end
   for _, p in ipairs(posed) do
@@ -776,7 +793,7 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
   end
   for _, p in ipairs(posed) do
     local def = p.sprite.def
-    local frame, mirror = frameFor(def, p.facing, p.phase, p.flip)
+    local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip)
     local mesh = SpriteBillboards.shadowQuad(def, frame)
     if mesh then
       ShadowMap.draw(mesh, p.sprite:resolveImage(),
@@ -844,7 +861,15 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   end
 
   local posed, me = posesOf(state, spriteColors)
-  castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh, atlasFor,
+  -- Build the first-person placed camera before either pass runs. The
+  -- returned centre follows the continuous eye position, while a zero
+  -- blend clears only a camera owned by this module and leaves the normal
+  -- orbit path untouched.
+  local fpRig, fpCx, fpCy = FirstPerson.frame(me, cx, cy, vw, vh)
+  if fpRig then cx, cy = fpCx, fpCy end
+
+  local shCx, shCy = FirstPerson.shadowCenter(cx, cy, vh)
+  castShadows(state, terrain, nbMesh, posed, shCx, shCy, vw, vh, atlasFor,
               water, nbWater)
 
   if not Voxel3D.beginScene(w, h, cx, cy, vw, vh, skyFor(state.map)) then
@@ -867,7 +892,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   if not Voxel3D.shadowsActive() then
     Voxel3D.beginShadows()
     for _, p in ipairs(posed) do
-      drawShadow(p.sprite, p.px, p.py, p.facing, p.phase, p.flip, p.gh,
+      drawShadow(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
                  p.lift)
     end
     Voxel3D.endShadows()
@@ -913,7 +938,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
   -- wrote it, so the silhouette would paint over the player at all times.
   -- Every character then draws on top as usual, which leaves the silhouette
   -- showing in exactly one situation: where the world hides them.
-  if me then
+  if me and not FirstPerson.hidePlayer() then
     Voxel3D.beginGhost()
     drawGhost(me)
     Voxel3D.endGhost()

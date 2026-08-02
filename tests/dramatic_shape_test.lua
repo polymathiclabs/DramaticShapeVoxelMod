@@ -3711,6 +3711,20 @@ FirstPerson.frame(me, 500, 600, 320, 288)
 T.check(FirstPerson.cardBlend() == 1, "the free-roam rig turns the cards")
 T.check(FirstPerson.hidePlayer(), "and hides the player's own card")
 
+-- OpenXR supplies a separate placed camera for each eye. The scene may
+-- still ask FirstPerson for its blend and billboard helpers, but it must not
+-- replace that eye with the desktop rig.
+local vrEye = { eye = { 108, 13, 208 }, focus = { 108, 13, 232 },
+                fov = FirstPerson.FOV }
+FirstPerson.adoptVReye(vrEye)
+Voxel3D.camera = vrEye
+local preserved = FirstPerson.frame(me, 500, 600, 320, 288)
+T.eq(preserved, vrEye, "a VR eye remains the active first-person camera")
+T.eq(Voxel3D.camera, vrEye, "the desktop rig does not overwrite the VR eye")
+FirstPerson.adoptVReye(nil)
+Voxel3D.camera = nil
+FirstPerson.frame(me, 500, 600, 320, 288)
+
 -- an NPC south of the eye: the card yaws to face north, back at the eye
 local yaw = FirstPerson.cardYaw(108, 300)
 T.check(near(math.sin(yaw), 0) and near(math.cos(yaw), -1),
@@ -3777,6 +3791,14 @@ T.eq(blocked(state, p, 6, 5), "entity", "an occupied cell refuses the body")
 state.entities = { { cellX = 7, cellY = 5, targetX = 6, targetY = 5 } }
 T.eq(blocked(state, p, 6, 5), "entity",
   "and so does one an NPC is mid-step into")
+
+local marker = FreeMove.markerRect(5, 7)
+T.eq(marker.left, 81.5, "the tile marker starts inside the logical cell")
+T.eq(marker.top, 113.5, "the marker uses the cell's world origin")
+T.eq(marker.right, 94.5, "the marker leaves a clear right margin")
+T.eq(marker.bottom, 126.5, "the marker leaves a clear bottom margin")
+T.eq(marker.right - marker.left, 13,
+  "the marker is smaller than the full tile so its outline reads clearly")
 
 -- the ladder's own state, put back the way the suite found it
 FirstPerson.blend = 0

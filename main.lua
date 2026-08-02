@@ -102,6 +102,8 @@ local BattleExit = V.require("BattleExit")
 local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
 local Water = V.require("Water")
+local FirstPerson = V.require("FirstPerson")
+local FreeMove = V.require("FreeMove")
 
 -- The regular Options screen uses ModSetting:row(), rather than the mod
 -- manager event used by the settings page. Re-anchor VR for that path too.
@@ -213,6 +215,7 @@ local function drawWorldFx(ctx)
   if not Voxel3D.beginOverlay() then return end
   ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
              ctx.scale)
+  FreeMove.drawMarker(ctx.state)
   Voxel3D.endOverlay()
 end
 
@@ -460,6 +463,7 @@ mod.content.render_pipelines:register("voxel", {
     -- would fight anyone who changed one deliberately.
     applyFull(level)
     Voxel.update(dt, level)
+    FirstPerson.update(dt)
     -- the day/night clock, on the same always-running tick: Pipelines.update
     -- runs whatever the level, so time passes with the mode off, through
     -- battles and menus, and a CYCLE evening falls mid-fight exactly as it
@@ -1082,6 +1086,12 @@ end
 -- where the reasoning for each one is written down. Installed once, here,
 -- so this file keeps naming every engine seam the mod touches.
 OverworldBattle.install()
+
+-- 1ST is the only voxel rung that replaces the grid walk. The camera owns
+-- the look inputs, while FreeMove keeps the engine's logical cell and step
+-- consequences authoritative as the physical position crosses boundaries.
+FirstPerson.install()
+FreeMove.install()
 
 -- The overworld's own pushBattle is the choke point for a wild encounter or
 -- a trainer, and it is wrapped. A battle that arrives some other way -- a
