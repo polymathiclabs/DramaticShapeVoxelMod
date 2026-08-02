@@ -337,14 +337,17 @@ local function setVrUiComposite(Renderer, placement)
     local classicFit = math.max(1, math.floor(math.min(pw / 160, ph / 144)))
     local sourceFit = math.max(1, math.floor(
       (ui.sx or 1) * (ui.dpiX or 1) + 0.5))
-    scale = 0.20 * classicFit / sourceFit
+    -- A small bump gives combat text room to breathe; the compositor then
+    -- snaps the final scale to whole output pixels to avoid glyph shimmer.
+    scale = 0.24 * classicFit / sourceFit
     -- Keep unusual small desktop windows from making the battle panel
     -- dominate the headset view while still restoring readable glyphs.
-    scale = math.max(0.20, math.min(0.34, scale))
+    scale = math.max(0.24, math.min(0.36, scale))
   end
 
   ui.vrScale = scale
   ui.vrPlacement = placement
+  ui.vrPixelSnap = placement == "battle"
 end
 
 -- Renderer:endFrame has already drawn the classic UI into the VR output
