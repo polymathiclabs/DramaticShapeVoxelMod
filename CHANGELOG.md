@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.3
+
+### Changed
+
+- **The minimap is inset from the mirror edges.** It no longer hugs the
+  extreme lower-left corner, which makes it easier to read in first-person
+  view and when the PC mirror is resized.
+- **Voxel settings have a clear home in the mod manager.** The mod now appears
+  under the `POLYMATIC LABS` section, with a dedicated `VOXEL SETTINGS` entry.
+
 ## 1.5.2
 
 ### Added

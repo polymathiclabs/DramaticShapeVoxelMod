@@ -21,7 +21,10 @@ Minimap.SOURCE_W = 160
 Minimap.SOURCE_H = 144
 Minimap.MIN_MAP_W = 160
 Minimap.MAX_MAP_W = 320
-Minimap.MARGIN = 12
+-- Keep the panel comfortably inside the mirror and headset view instead of
+-- pinning it to the extreme lower-left corner. The same inset is used on
+-- every window size so it stays predictable when the PC mirror is resized.
+Minimap.MARGIN = 32
 Minimap.PADDING = 6
 
 local cache = {
