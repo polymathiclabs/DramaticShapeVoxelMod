@@ -3705,11 +3705,19 @@ T.check(mid.eye[2] > FirstPerson.EYE_HEIGHT,
 T.check(mid.eye[2] < 288 * VoxelState.FOCAL,
   "and lower than the orbit")
 
--- ------- the cards ask the rig, and only the rig
+-- ------- the cards ask the active scene scope
 FirstPerson.blend = 1
 FirstPerson.frame(me, 500, 600, 320, 288)
 T.check(FirstPerson.cardBlend() == 1, "the free-roam rig turns the cards")
 T.check(FirstPerson.hidePlayer(), "and hides the player's own card")
+
+-- A renderer may replace the camera object while this scene is still being
+-- drawn. The character pass must remain first-person in that case.
+Voxel3D.camera = { eye = { 0, 10, 0 }, focus = { 0, 10, 1 } }
+T.eq(FirstPerson.cardBlend(), 1,
+  "a camera handoff does not tilt cards or reveal the player")
+T.check(FirstPerson.hidePlayer(), "the player stays culled through the handoff")
+FirstPerson.endFrame()
 
 -- OpenXR supplies a separate placed camera for each eye. The scene may
 -- still ask FirstPerson for its blend and billboard helpers, but it must not
@@ -3724,6 +3732,7 @@ T.eq(Voxel3D.camera, vrEye, "the desktop rig does not overwrite the VR eye")
 FirstPerson.adoptVReye(nil)
 Voxel3D.camera = nil
 FirstPerson.frame(me, 500, 600, 320, 288)
+FirstPerson.endFrame()
 
 -- an NPC south of the eye: the card yaws to face north, back at the eye
 local yaw = FirstPerson.cardYaw(108, 300)

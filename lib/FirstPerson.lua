@@ -109,12 +109,12 @@ local lookTouch = nil                 -- { id, x, y } of the claimed finger
 local touchMove = nil                 -- the touch d-pad's analog deflection
 local captured = false                -- mouse relative mode engaged by us
 
--- the placed-camera record this module last handed to Voxel3D, so passes
--- that key behaviour off "is the first-person rig the one drawing" (the
--- billboard yaw, the frame remap) can ask by identity rather than by mode
--- -- the battle's own placed camera must never read as first person
+-- The placed-camera record this module last handed to Voxel3D. The battle
+-- scene uses the same camera slot, so card rendering is scoped explicitly to
+-- the overworld scene rather than inferred from camera object identity.
 local rig = nil
 local vrRig = nil                  -- the per-eye camera currently adopted by VR
+local rendering = false            -- true only while this scene's cards draw
 
 local FACING_ANGLE = {
   down = 0,
@@ -156,12 +156,13 @@ function FirstPerson.blendEased()
   return ease(FirstPerson.blend)
 end
 
--- The blend, but only while the free-roam pass's own rig is the placed
--- camera. The battle scene places a camera of its own through the same
--- seam, and its cards must keep their stage lean rather than yawing at a
--- first-person eye that is not looking at them.
+-- The blend while the current overworld scene is drawing. This must not use
+-- camera object identity: OpenXR and the renderer may replace the placed
+-- camera during the pass, even though the first-person scene is still the
+-- one drawing. The battle scene never opens this scope, so its cards retain
+-- their stage lean.
 function FirstPerson.cardBlend()
-  if not rig or Voxel3D.camera ~= rig then return 0 end
+  if not rendering then return 0 end
   return ease(FirstPerson.blend)
 end
 
@@ -174,6 +175,13 @@ end
 function FirstPerson.adoptVReye(record)
   vrRig = record
   rig = record
+end
+
+-- End the current overworld render scope. Kept separate from the camera
+-- cleanup because a VR eye and a battle camera may both use Voxel3D.camera
+-- after the character pass has finished.
+function FirstPerson.endFrame()
+  rendering = false
 end
 
 -- Whether the player's own card should be left out of the camera draw:
@@ -425,6 +433,7 @@ local lastEye = nil                   -- frozen head pose for player-less frames
 -- leave the orbit in charge.
 function FirstPerson.frame(me, cx, cy, vw, vh)
   local b = FirstPerson.blend
+  rendering = false
   if b <= 0 then
     if not vrRig then
       if rig and Voxel3D.camera == rig then Voxel3D.camera = nil end
@@ -482,6 +491,10 @@ function FirstPerson.frame(me, cx, cy, vw, vh)
     rig = desktopRig
     Voxel3D.camera = rig
   end
+  -- From here through VoxelScene.endScene, the character pass belongs to
+  -- this first-person overworld frame. Do not derive that fact from the
+  -- camera slot, which is intentionally shared with VR and battle passes.
+  rendering = true
 
   -- the scene centre walks from the orbit's view centre to the head, so
   -- the curve's focus, the depth reference and the glint's travel follow

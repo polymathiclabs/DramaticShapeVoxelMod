@@ -111,6 +111,7 @@ function VRStereo.render(state, w, h, vw, vh, paletteFor, view, slot, stereoStat
 
   Voxel3D.beginScene = previousBeginScene
   Voxel3D.camera = previousCamera
+  FirstPerson.endFrame()
   FirstPerson.adoptVReye(nil)
   if not ok then
     -- A failed scene may have opened a pass before the driver error. Closing

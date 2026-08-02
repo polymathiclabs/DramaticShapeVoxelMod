@@ -873,6 +873,7 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
               water, nbWater)
 
   if not Voxel3D.beginScene(w, h, cx, cy, vw, vh, skyFor(state.map)) then
+    FirstPerson.endFrame()
     return nil
   end
 
@@ -996,7 +997,9 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, options)
                  ShadowMap.snug(Mat4.translate(nb.ox, 0, nb.oy)))
   end
 
-  return Voxel3D.endScene()
+  local canvas = Voxel3D.endScene()
+  FirstPerson.endFrame()
+  return canvas
 end
 
 return VoxelScene
