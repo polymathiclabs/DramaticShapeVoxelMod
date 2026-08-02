@@ -508,6 +508,28 @@ local function quaternionRotate(q, vector)
   }
 end
 
+-- OpenXR expresses a headset's local view direction as -Z, with +X right
+-- and +Y up.  The game camera can face any world direction (the POV camera
+-- faces +Z when the trainer faces down), so applying that quaternion directly
+-- to the game's forward vector changes the pitch sign for some camera modes.
+-- Re-express the rotated OpenXR direction in the camera's own orthonormal
+-- basis instead: local -Z maps to the camera's base forward, local +Y to its
+-- base up, and local +X to its base right.
+local function trackedDirection(delta, baseRight, baseUp, baseForward)
+  local localForward = quaternionRotate(delta, { 0, 0, -1 })
+  return {
+    baseRight[1] * localForward[1]
+      + baseUp[1] * localForward[2]
+      - baseForward[1] * localForward[3],
+    baseRight[2] * localForward[1]
+      + baseUp[2] * localForward[2]
+      - baseForward[2] * localForward[3],
+    baseRight[3] * localForward[1]
+      + baseUp[3] * localForward[2]
+      - baseForward[3] * localForward[3],
+  }
+end
+
 -- View and projection for a `vw` x `vh` world-pixel view centred on
 -- (cx, cy) in world pixels. Returns the combined matrix.
 function Voxel3D.viewProjection(cx, cy, vw, vh)
@@ -527,10 +549,8 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
         local baseRight = normalize3(cross3(baseForward, { 0, 1, 0 }),
                                      { 1, 0, 0 })
         local baseUp = cross3(baseRight, baseForward)
-        local tracked = quaternionRotate(delta, baseForward)
-        -- The headset delta and the voxel world are both Y-up. Keep the pose
-        -- direction untouched here; only the projection's clip-space Y
-        -- conversion below adapts the rendered canvas to LOVE coordinates.
+        local tracked = trackedDirection(delta, baseRight, baseUp,
+                                          baseForward)
         local forward = normalize3(tracked, baseForward)
         -- Use the tracked forward direction, then rebuild the horizontal
         -- basis against world-up. This keeps pitch and yaw equivalent while
