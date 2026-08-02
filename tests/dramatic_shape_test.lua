@@ -3718,6 +3718,8 @@ T.eq(FirstPerson.cardBlend(), 1,
   "a camera handoff does not tilt cards or reveal the player")
 T.check(FirstPerson.hidePlayer(), "the player stays culled through the handoff")
 FirstPerson.endFrame()
+T.eq(FirstPerson.cardBlend(), 0,
+  "closing the desktop frame clears first-person card state")
 
 -- OpenXR supplies a separate placed camera for each eye. The scene may
 -- still ask FirstPerson for its blend and billboard helpers, but it must not

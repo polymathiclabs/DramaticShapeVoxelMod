@@ -258,8 +258,16 @@ end
 local pendingStereo
 local function renderSingleEye(ctx, sw, sh)
   pendingStereo = nil
-  local canvas = VoxelScene.render(ctx.state, sw, sh,
-                                   ctx.vw, ctx.vh, ctx.paletteFor)
+  local ok, canvas = pcall(VoxelScene.render, ctx.state, sw, sh,
+                           ctx.vw, ctx.vh, ctx.paletteFor)
+  if not ok then
+    -- VoxelScene owns the normal success cleanup. If a driver rejects a
+    -- mesh or canvas after FirstPerson.frame opened its card scope, close
+    -- that scope here before falling back to the engine's 2D world path.
+    FirstPerson.endFrame()
+    pcall(Voxel3D.endScene)
+    return nil
+  end
   if not canvas then return nil end
   drawWorldFx(ctx)
   return canvas
