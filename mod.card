@@ -18,6 +18,7 @@ return {
       "hotkeys 3 and 5 are taken over from those two, which have no key and no row while this is loaded",
       "SELECT in free roam steps the VOXEL ladder exactly as hotkey 3 does -- the button has no overworld job in Gen 1, and phones and pads have no number row; menus keep it untouched",
       "in POV (the first-person view), the grid walk is replaced by free camera-relative movement: collision, warps, ledges, encounters and scripts still run through the engine's own machinery, and ABOVE and 3RD retain tile movement",
+      "in POV, W/S or up/down walks relative to the look direction, while A/D or left/right turns in place once per press",
       "in POV the mouse is captured only while the overworld is active for free look; menus, dialogue and battles release it; left click is A, right click is B, and any touch off the overlay's controls drags the view",
     },
     added = {

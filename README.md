@@ -50,6 +50,8 @@ menu.
 | --- | --- |
 | `3`, or the **VOXEL** options row | OFF → 15 → 35 → 50 → 75 → POV (FREE) — camera pitch and the compatibility first-person rung; the **CAMERA** row is the clear way to choose views |
 | `V`, or the **CAMERA** options row | ABOVE / 3RD / POV (FREE) — switch between the elevated diorama, behind-trainer third person, and character-height first person. POV automatically enables the voxel first-person pass and free movement; ABOVE and 3RD restore tile movement |
+| `W/S` or up/down in POV | Walk forward and backward relative to where the trainer is looking |
+| `A/D` or left/right in POV | Turn in place without strafing; the turn is applied once per press |
 | `5`, or the **V-GRID** options row | OFF / ON — a one-pixel wireframe on every voxel |
 | `6`, or the **T-SHIFT** options row | OFF → 1 → 2 → 3 → OFF (miniature blur) |
 | `7`, or the **V-CURVE** options row | OFF → 1 → 2 → 3 — bend the world over the horizon |
