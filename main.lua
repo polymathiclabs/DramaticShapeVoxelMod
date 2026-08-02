@@ -354,7 +354,10 @@ local function finishStereo()
   pendingStereo = nil
   if not (okLeft and leftDone and okRight and rightDone) then return false end
   Runtime.queue(pending.left, pending.right)
-  return true
+  -- Return the finished left eye as the desktop mirror. The engine scales
+  -- this image to the PC window only; Runtime.queue still submits both eyes
+  -- at their native OpenXR dimensions.
+  return true, pending.left
 end
 
 -- BattleState can draw after the voxel world hook has declined to render a
