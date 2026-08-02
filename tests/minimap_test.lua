@@ -34,8 +34,8 @@ local layout = Minimap._layout(1280, 720)
 T.check(layout and layout.w > layout.h
         and math.abs((layout.mapW / layout.mapH) - (160 / 144)) < 0.02,
   "the minimap layout keeps the classic frame's aspect ratio")
-T.check(layout.x >= 32 and (720 - (layout.y + layout.h)) >= 32,
-  "the minimap stays inset from both lower-left edges")
+T.check(layout.x >= 32 and (720 - (layout.y + layout.h)) >= 240,
+  "the minimap clears the classic dialogue-box height")
 
 Minimap.setting:setIndex(1, game)
 T.eq(Minimap.setting:get(), true, "the minimap can be switched on again")

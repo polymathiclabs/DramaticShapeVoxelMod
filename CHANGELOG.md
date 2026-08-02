@@ -1,12 +1,22 @@
 # Changelog
 
+## 1.5.4
+
+### Changed
+
+- **The manager category is now simply `VR`.** The voxel settings are easier
+  to find at the root of the MODS tab without a Polymatic Labs category layer.
+- **The minimap is raised to clear dialogue.** Its bottom edge now aligns with
+  the top of the classic dialogue panel at each window size.
+
 ## 1.5.3
 
 ### Changed
 
-- **The minimap is inset from the mirror edges.** It no longer hugs the
-  extreme lower-left corner, which makes it easier to read in first-person
-  view and when the PC mirror is resized.
+- **The minimap clears the dialogue panel.** It now sits above the classic
+  six-tile dialogue-box height and remains inset from the left edge, which
+  makes it easier to read in first-person view and when the PC mirror is
+  resized.
 - **Voxel settings have a clear home in the mod manager.** The mod now appears
   under the `POLYMATIC LABS` section, with a dedicated `VOXEL SETTINGS` entry.
 

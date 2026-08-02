@@ -64,12 +64,12 @@ menu.
 **3D-BTL** is on by default and is independent of **VOXEL**: battles draw
 on the world whether or not the free-roam camera is pitched over.
 
-The mod's settings live in **OPTIONS → MODS → POLYMATIC LABS → Polymatic Labs
-Voxel VR → VOXEL SETTINGS**. The same rows are also available in the normal
+The mod's settings live in **OPTIONS → MODS → VR → Polymatic Labs Voxel VR →
+VOXEL SETTINGS**. The same rows are also available in the normal
 OPTIONS menu for quick access.
 
-The **MINIMAP** row is an ON-by-default lower-left panel, inset from the edges,
-that reuses the original
+The **MINIMAP** row is an ON-by-default lower-left panel, raised above the
+classic dialogue-box height and inset from the edges, that reuses the original
 2D tile renderer for the current map and follows the player. It is available
 in the mod manager and the normal OPTIONS menu, including while FULL is
 selected.

@@ -25,6 +25,11 @@ Minimap.MAX_MAP_W = 320
 -- pinning it to the extreme lower-left corner. The same inset is used on
 -- every window size so it stays predictable when the PC mirror is resized.
 Minimap.MARGIN = 32
+-- Raise the panel to the top edge of the classic six-tile dialogue box. This
+-- keeps the minimap clear of dialogue and menus while leaving it in the lower
+-- half of the view. The value is converted to the current framebuffer scale
+-- in layout(), so it follows both the desktop mirror and the VR canvas.
+Minimap.DIALOGUE_GAP = 48
 Minimap.PADDING = 6
 
 local cache = {
@@ -55,6 +60,9 @@ function Minimap.layout(screenW, screenH)
                                             screenW * 0.24)))
   local pad = Minimap.PADDING
   local margin = Minimap.MARGIN
+  local bottomMargin = math.max(
+    margin, math.floor(screenH * Minimap.DIALOGUE_GAP
+                        / Minimap.SOURCE_H + 0.5))
   local scale = mapW / Minimap.SOURCE_W
   local mapH = math.floor(Minimap.SOURCE_H * scale + 0.5)
   local panelW = mapW + pad * 2
@@ -62,7 +70,7 @@ function Minimap.layout(screenW, screenH)
 
   -- Keep the panel usable on a small desktop window too.  This branch is
   -- mostly a safety net for resized windows and headless display probes.
-  local maxH = math.max(1, screenH - margin * 2)
+  local maxH = math.max(1, screenH - margin - bottomMargin)
   if panelH > maxH then
     scale = math.max(0.5, (maxH - pad * 2) / Minimap.SOURCE_H)
     mapW = math.floor(Minimap.SOURCE_W * scale + 0.5)
@@ -73,7 +81,7 @@ function Minimap.layout(screenW, screenH)
 
   return {
     x = margin,
-    y = screenH - panelH - margin,
+    y = screenH - panelH - bottomMargin,
     w = panelW,
     h = panelH,
     mapW = mapW,
