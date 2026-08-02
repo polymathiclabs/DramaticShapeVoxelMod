@@ -3,6 +3,9 @@
 A mod for the [Pokémon Gen 1 Recompilation
 Project](https://github.com/bryanthaboi/pokemon-gen1-recomp-project).
 
+This is an unofficial fan modification. It is not affiliated with or endorsed
+by Nintendo, The Pokémon Company, Game Freak, Creatures, or their partners.
+
 The overworld as a 3D diorama. Terrain is extruded into real geometry,
 occlusion comes from a depth buffer rather than a y-sort, characters stand
 as leaning sprite slabs, a shadow map throws real cast shadows across
@@ -73,3 +76,15 @@ battle text box and menus keep the engine's ordinary white dialogue paper and
 border, so they match open-world conversations when they appear as the small
 floating VR panel. The status windows are reduced and follow their Pokémon;
 the engine still supplies every name, level, HP bar, and menu glyph.
+
+## Licensing and attribution
+
+The original Dramatic Shape Voxel Mod code and assets remain attributed to
+DramaticShape. The upstream snapshot used here did not contain an explicit
+redistribution license, so this repository must not be treated as a blanket MIT
+license for the original material. Obtain permission from the upstream author
+before publishing a public redistributable copy of the complete mod.
+
+Changes authored by Polymatic Labs are available under the MIT License in
+[`LICENSE-POLYMATIC-LABS.md`](LICENSE-POLYMATIC-LABS.md). The base engine keeps its own license
+and attribution in the engine repository.

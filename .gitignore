@@ -5,3 +5,8 @@ __pycache__/
 
 # agent worktrees and local scratch
 .claude/
+# Keep user ROMs and saves out of the mod checkout.
+*.gb
+*.gbc
+*.sav
+*.rom
