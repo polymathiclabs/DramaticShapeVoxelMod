@@ -62,6 +62,11 @@ menu.
 **3D-BTL** is on by default and is independent of **VOXEL**: battles draw
 on the world whether or not the free-roam camera is pitched over.
 
+The **MINIMAP** row is an optional lower-left panel that reuses the original
+2D tile renderer for the current map and follows the player. It is available
+in the mod manager and the normal OPTIONS menu, including while FULL is
+selected.
+
 Two of the engine's own rows are taken away while this mod is installed:
 **TILT**, which is the flat fake of what this mode does for real, and **GBC
 FX**, a full-screen present pass over the top of the diorama. Both are held at

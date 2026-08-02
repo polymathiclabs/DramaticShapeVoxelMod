@@ -104,6 +104,7 @@ local DayTint = V.require("DayTint")
 local Water = V.require("Water")
 local FirstPerson = V.require("FirstPerson")
 local FreeMove = V.require("FreeMove")
+local Minimap = V.require("Minimap")
 
 -- The regular Options screen uses ModSetting:row(), rather than the mod
 -- manager event used by the settings page. Re-anchor VR for that path too.
@@ -216,6 +217,7 @@ local function drawWorldFx(ctx)
   ctx.drawFx(function(wx, wy) return Voxel3D.project(wx, 0, wy) end,
              ctx.scale)
   FreeMove.drawMarker(ctx.state)
+  Minimap.draw(ctx.state, Voxel3D)
   Voxel3D.endOverlay()
 end
 
@@ -518,6 +520,7 @@ mod.content.render_pipelines:register("voxel", {
     Voxel3D.invalidate()
     OverworldBattle.invalidate()
     ChunkMesher.invalidate()   -- no map id = every cached mesh
+    Minimap.invalidate()
   end,
 })
 
@@ -671,6 +674,9 @@ local SETTINGS = {
     .. "original slot, instead of standing it on the map facing the foe. "
     .. "The foe is still out there on its own tile.",
     when = function() return stagedBattles() end, full = true },
+  { Minimap.setting,
+    "Show a small classic 2D view of the current map in the lower-left "
+    .. "corner while the voxel world is active.", full = true },
   { DayNight.setting,
     "What time it is outdoors: pin the sky to DAY, NIGHT, DUSK or DAWN, "
     .. "let CYCLE run it -- ten minutes of sun, ten of moon, with the "
@@ -963,6 +969,7 @@ end)
 mod.events:on("world.block_replaced", function(payload)
   local mapId = payload and (payload.mapId or (payload.map and payload.map.id))
   if mapId then ChunkMesher.refresh(mapId) end
+  Minimap.invalidate()
 end)
 
 -- The event above is the ANNOUNCED edit -- OverworldState:replaceBlock
@@ -999,6 +1006,7 @@ do
       setBlock(self, bx, by, block)
       if self.id and self:blockAt(bx, by) ~= before then
         ChunkMesher.refresh(self.id)
+        Minimap.invalidate()
       end
     end
     Map.dramaticShapeBlockHook = true
@@ -1023,6 +1031,7 @@ end
 -- new colours land on the diorama already on screen, in one frame, which is
 -- what a palette toggle should look like from inside voxel mode.
 mod.events:on("map.reloaded", function(payload)
+  Minimap.invalidate()
   if payload and payload.reason == "colors" then return end
   local mapId = payload and (payload.mapId or (payload.map and payload.map.id))
   if mapId then ChunkMesher.invalidate(mapId) end
